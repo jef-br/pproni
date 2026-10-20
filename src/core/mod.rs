@@ -17,16 +17,25 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path) -> Result<(), St
     let _trace = trace::begin(output);
     let prep = preprocessor::prepare(input)?;
     let classified = classify(&prep);
+    // Sample BGC/FGC once per image. We used to only pay for this with the debug marker on;
+    // R1's stretch/inpaint split needs the BGC on every image where a gate flagged an edge, so
+    // the guard widens to also fire when the classifier reports at least one gated edge. The
+    // single sample is still shared by the stage-90 log, the exporter's filename tag, and R1.
+    let gated_edges_present = classified
+        .as_ref()
+        .map(|(c, _)| !c.refinements.is_empty())
+        .unwrap_or(false);
+    let colors = (trace::debug_enabled() || gated_edges_present)
+        .then(|| classified.as_ref().map(|(_, mask)| exporter::colors::sample(&prep.working, mask)))
+        .flatten();
+    let bgc = colors
+        .as_ref()
+        .and_then(|c| c.bgc.as_deref())
+        .and_then(exporter::colors::parse_hex);
     let shot = classified
         .as_ref()
-        .map(|(class, mask)| processor::routes::Shot { class, mask });
+        .map(|(class, mask)| processor::routes::Shot { class, mask, bgc });
     let route = processor::routes::Route::select(shot.as_ref().map(|s| s.class));
-    // Sample BGC/FGC once per image (when debug is on). Shared by the stage-90 log line and the
-    // exporter's filename tag: `prep.working` is immutable, the mask is the same both times, and
-    // `colors::sample` is a pure read, so one measurement serves both sites.
-    let colors = (trace::debug_enabled())
-        .then(|| shot.as_ref().map(|s| exporter::colors::sample(&prep.working, s.mask)))
-        .flatten();
     trace_stage_90(&prep, shot.as_ref(), route, colors.as_ref());
     let img = processor::routes::dispatch(&prep, shot);
     let shot = classified
@@ -106,6 +115,7 @@ fn trace_stage_90(
     route: processor::routes::Route,
     colors: Option<&exporter::colors::ShotColors>,
 ) {
+    use processor::routes::center_and_stretch::compose;
     use processor::routes::center_and_stretch::plan::{Pins, SquarePlan};
     use processor::routes::Route;
     use shot_classifier::shotcode::{eix_bits, NO_VERDICT_EIX};
@@ -124,6 +134,22 @@ fn trace_stage_90(
         .map(|s| s.class.refinements.iter().map(|r| r.edge).collect())
         .unwrap_or_default();
     let touching: Vec<_> = shot.map(|s| s.class.touches_edges.clone()).unwrap_or_default();
+    // Per-column stretchable/unstretchable call for the stage-90 strip overlay. Only computed
+    // when R1 will actually run — R2/R3 do not stretch, so the strip would be meaningless there.
+    let strips: Vec<(shot_classifier::Edge, Vec<bool>)> = match route {
+        Route::CenterAndStretch if shot.is_some() => {
+            let scale = (prep.original.width() as f32 / prep.working.width().max(1) as f32)
+                .max(prep.original.height() as f32 / prep.working.height().max(1) as f32)
+                .max(1.0);
+            let probe = (config::R1_STRETCH_PROBE_LEN_WORKING_PX as f32 * scale).round().max(1.0) as u32;
+            let bgc = shot.and_then(|s| s.bgc);
+            gated
+                .iter()
+                .map(|&e| (e, compose::classify_edge(&prep.original, e, bgc, probe)))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
 
     let route_label = match route {
         Route::CenterAndStretch => "[R1 - CenterAndStretch]",
@@ -136,7 +162,7 @@ fn trace_stage_90(
         "{route_label} - bbox (cyan), final canvas (yellow), grey (invented area); red (edge touches) orange (edge gated but cleared)"
     );
     trace::image(trace::stage::R1_PLAN, &header, || {
-        trace::plan_view(&prep.original, subject, plan_tuple, &gated, &touching)
+        trace::plan_view(&prep.original, subject, plan_tuple, &gated, &touching, &strips)
     });
 
     // Line 2: bbox and R1's planned canvas, each shown only if we have it.

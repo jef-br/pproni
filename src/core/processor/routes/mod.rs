@@ -25,7 +25,7 @@ pub mod fallback;
 
 use super::super::preprocessor::Prepared;
 use crate::core::shot_classifier::{geometry::Rect, Edge, Mask, ShotClassification};
-use image::RgbImage;
+use image::{Rgb, RgbImage};
 
 /// What the classifier produced for one image: the edge verdict, and the mask it was read from.
 ///
@@ -42,6 +42,11 @@ pub struct Shot<'a> {
     pub class: &'a ShotClassification,
     /// Working-resolution subject mask.
     pub mask: &'a Mask,
+    /// Dominant background colour, when the exporter's colour sampler found one. R1 reads this to
+    /// decide whether a column inside a gated edge is close enough to the backdrop to stretch
+    /// through — see `center_and_stretch::compose::classify_segment`. `None` means no single
+    /// colour dominated the background region, and R1 falls back to per-edge local sampling.
+    pub bgc: Option<Rgb<u8>>,
 }
 
 impl<'a> Shot<'a> {
@@ -228,7 +233,7 @@ mod tests {
     fn subject_bbox_is_tight_around_the_mask() {
         let mask = mask_with(100, 100, Rect { x: 20, y: 30, w: 40, h: 20 });
         let class = verdict(&[]);
-        let got = Shot { class: &class, mask: &mask }.subject_bbox().expect("mask is not empty");
+        let got = Shot { class: &class, mask: &mask, bgc: None }.subject_bbox().expect("mask is not empty");
 
         // Tight, not the frame: the whole point of deriving it from the mask rather than taking
         // `Instance::bbox`, which BiRefNet fills with the full image.
@@ -240,7 +245,7 @@ mod tests {
         let mask = Mask { width: 50, height: 50, data: vec![0u8; 2500] };
         let class = verdict(&[]);
         assert!(
-            Shot { class: &class, mask: &mask }.subject_bbox().is_none(),
+            Shot { class: &class, mask: &mask, bgc: None }.subject_bbox().is_none(),
             "an empty mask must report no subject, not a box covering the frame"
         );
     }
@@ -256,7 +261,7 @@ mod tests {
             crop: Rect { x: 0, y: 0, w: 100, h: 100 },
         };
 
-        let got = Shot { class: &class, mask: &mask }
+        let got = Shot { class: &class, mask: &mask, bgc: None }
             .subject_bbox_in(&prep)
             .expect("mask is not empty");
 

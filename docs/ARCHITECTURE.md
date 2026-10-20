@@ -49,8 +49,10 @@ The optimiser is one function, `preprocessor::optimizer::optimize`, and does two
    `1 + lo/(255-lo) - (255-hi)/hi` kept between 0.01 and 9.99, and applies one 256-entry table to
    every channel. The one rounding happens when the table is built.
 2. **Trim**, on the balanced image. The 16 border pixels (4 per edge, at 0/25/50/75% of the edge,
-   going round clockwise) give the backdrop colour range: per channel, the lowest and highest sample.
-   A pixel inside the range on all three channels is backdrop. Gaps are closed with a 2x2 window
+   going round clockwise) are first filtered for outliers: a sample is dropped when its L1 distance to
+   the per-channel median exceeds `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K·MAD`, with the `TRIM_MIN_KEEP`
+   closest always kept. The kept samples give the backdrop colour range: per channel, the lowest and
+   highest sample. A pixel inside the range on all three channels is backdrop. Gaps are closed with a 2x2 window
    (`TRIM_CLOSE_K`): a pixel only counts as product if it sits in a 2x2 block of non-backdrop pixels.
    The tightest box around the product is squared to its largest side and grown on every side by the
    larger of 10 px and 10% of that side (`TRIM_MARGIN_MIN_PX`, `TRIM_MARGIN_SHARE`). The balanced image
@@ -122,7 +124,7 @@ output from the shot classifier's verdict:
 
 ```
 <stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].jpg   the export, renamed
-<stem>_segmask.png                                the working-resolution mask, 8-bit grey
+<stem>_segmask.jpg                                the segmentation mask, sRGB JPEG at output size (nearest)
 ```
 
 `EIX` is the 4-bit top-right-bottom-left edge string — always the classifier's real verdict, the
@@ -158,6 +160,7 @@ always built into the exe (no feature flag).
 | `sampling` | `ColorStats`, `sample_background_color` | per-edge background colour |
 | `shotcode` | `eix_bits`, `mask_too_small`, `NO_VERDICT_EIX` | the `EIX` debug tag bits |
 | `birefnet` | `BiRefNetConfig`, `BiRefNetModel` | ONNX inference, always built in |
+| `cipher` | ChaCha20 keystream | shared by `build.rs` (encrypt) and `birefnet::load` (decrypt) for the embedded model |
 
 `EdgeView` is the load-bearing idea: every per-edge algorithm is written once in "top edge, depth
 increasing downward" terms against the `Grid` trait, and the other three edges are presented by

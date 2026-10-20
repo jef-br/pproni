@@ -49,7 +49,7 @@ pub const MASK_MIN_COVERAGE: f64 = 0.05;
 
 // ---- Optimiser trim ---------------------------------------------------------------------------
 //
-// After the colour balance, the optimiser crops the backdrop away so the 384px model sees the product
+// After the colour balance, the optimiser crops the backdrop away so the 512px model sees the product
 // larger (`preprocessor::optimizer`). All four numbers are in working-resolution pixels or shares.
 
 /// Backdrop samples taken along each edge of the frame, evenly spaced from the edge's start
@@ -112,3 +112,64 @@ pub const R1_SAFETY_MASK_PX: f32 = 2.0;
 /// antialiasing, JPEG ringing, a hairline of contact shadow. Already in full-resolution pixels, so
 /// it is not scaled.
 pub const R1_SAFETY_EDGE_PX: f32 = 2.0;
+
+/// Along a gated edge, a column (or row) is **stretchable** when every one of its probed inward
+/// pixels sits within this L∞ per-channel distance of the background colour. A clean JPEG backdrop
+/// easily fits in 18 of 255 per channel; a shadow or shoe-sliver crossing into the band does not.
+pub const R1_STRETCH_BGC_TOLERANCE: u8 = 18;
+
+/// How many *working*-resolution pixels inward from a gated edge are probed when deciding whether
+/// a column is close to BGC. Pinned to the gate band width — the same strip the gate flagged is
+/// the strip we re-interrogate per column.
+pub const R1_STRETCH_PROBE_LEN_WORKING_PX: u32 = GATE_MARGIN_PX;
+
+/// Fallback when `colors::sample` reports no global BGC: resample this many colours along a short
+/// strip just inside the gated band, drop outliers (MAD rule), and if the kept set is tight enough
+/// (see `R1_LOCAL_BGC_SPAN_MAX`) treat the median as a per-edge BGC. 16 mirrors the preprocessor's
+/// border-sample budget so the two statistics agree.
+pub const R1_LOCAL_BGC_SAMPLES: u32 = 16;
+
+/// Maximum per-channel span of the kept local samples that still counts as a usable per-edge BGC.
+/// A wider span means the edge isn't flat, so no local BGC can be trusted and the whole side is
+/// unstretchable.
+pub const R1_LOCAL_BGC_SPAN_MAX: u8 = 24;
+
+/// Standard deviation of the per-channel noise added to inpainted pixels, so a lerp'd fill doesn't
+/// read as a dead-flat seam against JPEG-noisy stretched neighbours.
+pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
+
+// ---- R1 · mask-aware fill (plan Part A) -------------------------------------------------------
+//
+// These drive the segmask-aware stretch→blend→inpaint fill. All three are PROVISIONAL defaults:
+// the plan calls for tuning them in `/pair` against the reference stems, so treat the values below
+// as a safe starting point, not a settled decision.
+
+// <jbpair goal="Part B tuning: these provisional fill + per-edge-detector constants (clearance / feather / inpaint-radius, edge-flat span, texture threshold) plus the acceptance ΔE2000 threshold are starting values only; set the final numbers on the real stems in /pair">
+/// Plan name `FILL_SOURCE_CLEARANCE_PX`. How far outward (in *working*-resolution pixels) the
+/// silhouette is dilated before a pixel may be used as a stretch *source*, so the stretch never
+/// samples a cuff/edge pixel that merely sits within BGC tolerance (the 10/11 grey-streak case).
+/// Scaled to full resolution at use, like `R1_STRETCH_PROBE_LEN_WORKING_PX`.
+pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = 4;
+
+/// Plan name `FILL_FEATHER_PX`. Width, in full-resolution pixels, of the feather blend across a
+/// fill seam. Feather is the plan's default seam treatment; heavier escalation (RANSAC alignment)
+/// is deferred until a feather is shown to fail on a real stem.
+pub const R1_FILL_FEATHER_PX: u32 = 8;
+
+/// Plan name `FILL_INPAINT_RADIUS_PX`. How far (full-resolution pixels) the area-4 inpaint reaches
+/// for clean near-neighbour background when the stretch cannot cover a pixel.
+pub const R1_FILL_INPAINT_RADIUS_PX: u32 = 24;
+
+// ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
+//
+// A preprocessor-stage primitive, upstream of the mask. PROVISIONAL defaults — tune in `/pair`.
+
+/// Plan name `T_edge_flat`. Max per-channel span (0..255) across one edge's kept border samples
+/// for that edge to count as `flat`.
+pub const T_EDGE_FLAT: u16 = 24;
+
+/// Plan name `T_texture_highpass`. Mean high-pass response (0..255) outside the subject proxy above
+/// which the trimmed background reads as *textured* (a Part C scene) rather than *double-flat* (a
+/// frame — the deferred Part D signal).
+pub const T_TEXTURE_HIGHPASS: f32 = 6.0;
+// </jbpair>

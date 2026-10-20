@@ -1,0 +1,164 @@
+//! R1 fallback: fill an unstretchable sub-range of a scanline instead of resampling it.
+//!
+//! A column (or row) is "unstretchable" when the gate-flagged band near its edge is not clean
+//! background — a shoe fragment, a cast shadow, a textured scene — and so resampling it would
+//! smear that fragment across the overhang. Those sub-ranges land here. Everything stretchable
+//! stays with [`super::compose::resample`]; this module never touches them.
+//!
+//! The classical fill is edge-aware lateral copy from clean neighbours, with a BGC-or-white
+//! fallback. If a wider inpainter proves necessary (narrow-band Telea / fast-marching, or an
+//! ONNX LaMa-style model), it slots in here behind the same [`fill_segment`] signature.
+
+use image::Rgb;
+
+use super::super::super::super::config;
+
+/// Fill `out` for one unstretchable sub-range of a scanline, choosing the strategy from whichever
+/// neighbour context is present.
+///
+/// * `left_ctx` / `right_ctx` — the final pixels of the two stretched runs sitting against this
+///   sub-range in the output line, or `None` when the sub-range sits at the end of the outer
+///   segment with nothing beyond it. "Left" means the lower output index; which image edge that
+///   lands on depends on the pass and the segment.
+/// * `bgc` — the global or per-edge background colour, when one was found. `None` falls through
+///   to a flat white fill, matching R3's default canvas colour.
+///
+/// Noise is added at the standard deviation set by [`config::R1_INPAINT_NOISE_SIGMA`] so a flat
+/// fill does not read as a dead-flat seam against the JPEG-noisy stretched columns next to it.
+pub fn fill_segment(
+    out: &mut [Rgb<u8>],
+    left_ctx: Option<Rgb<u8>>,
+    right_ctx: Option<Rgb<u8>>,
+    bgc: Option<Rgb<u8>>,
+) {
+    if out.is_empty() {
+        return;
+    }
+    let noise_sigma = config::R1_INPAINT_NOISE_SIGMA;
+    match (left_ctx, right_ctx) {
+        (Some(a), Some(b)) => lerp_fill(out, a, b, noise_sigma),
+        (Some(a), None) => flat_fill(out, a, noise_sigma),
+        (None, Some(b)) => flat_fill(out, b, noise_sigma),
+        (None, None) => flat_fill(out, bgc.unwrap_or(Rgb([255, 255, 255])), noise_sigma),
+    }
+}
+
+fn lerp_fill(out: &mut [Rgb<u8>], a: Rgb<u8>, b: Rgb<u8>, sigma: f32) {
+    let m = out.len();
+    let steps = (m + 1) as f32;
+    let mut rng = TinyRng::seeded(a, b, m);
+    for (k, dst) in out.iter_mut().enumerate() {
+        let t = (k + 1) as f32 / steps;
+        let r = lerp_u8(a.0[0], b.0[0], t);
+        let g = lerp_u8(a.0[1], b.0[1], t);
+        let bl = lerp_u8(a.0[2], b.0[2], t);
+        *dst = Rgb([
+            jitter(r, sigma, rng.next_i8()),
+            jitter(g, sigma, rng.next_i8()),
+            jitter(bl, sigma, rng.next_i8()),
+        ]);
+    }
+}
+
+fn flat_fill(out: &mut [Rgb<u8>], c: Rgb<u8>, sigma: f32) {
+    let mut rng = TinyRng::seeded(c, c, out.len());
+    for dst in out.iter_mut() {
+        *dst = Rgb([
+            jitter(c.0[0], sigma, rng.next_i8()),
+            jitter(c.0[1], sigma, rng.next_i8()),
+            jitter(c.0[2], sigma, rng.next_i8()),
+        ]);
+    }
+}
+
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8
+}
+
+/// Approximate N(0, sigma) jitter from a signed byte roll in [-128, 127].
+fn jitter(v: u8, sigma: f32, roll: i8) -> u8 {
+    if sigma <= 0.0 {
+        return v;
+    }
+    let s = roll as f32 / 127.0;
+    let d = s * sigma;
+    (v as f32 + d).round().clamp(0.0, 255.0) as u8
+}
+
+/// A tiny deterministic PRNG seeded by the context colours and segment length — so repeated runs
+/// of the same inpaint produce the same output, which keeps the output image deterministic.
+struct TinyRng(u64);
+
+impl TinyRng {
+    fn seeded(a: Rgb<u8>, b: Rgb<u8>, len: usize) -> Self {
+        let seed = (a.0[0] as u64)
+            ^ ((a.0[1] as u64) << 8)
+            ^ ((a.0[2] as u64) << 16)
+            ^ ((b.0[0] as u64) << 24)
+            ^ ((b.0[1] as u64) << 32)
+            ^ ((b.0[2] as u64) << 40)
+            ^ (len as u64).wrapping_mul(0x9E3779B97F4A7C15);
+        // Avoid an all-zero state, which xorshift fixed-points at zero.
+        TinyRng(seed | 1)
+    }
+    fn next_u64(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn next_i8(&mut self) -> i8 {
+        (self.next_u64() & 0xFF) as i8
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_target_is_a_noop() {
+        let mut out: Vec<Rgb<u8>> = Vec::new();
+        fill_segment(&mut out, Some(Rgb([10, 10, 10])), None, None);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn both_contexts_present_lerps_between_them() {
+        let mut out = vec![Rgb([0, 0, 0]); 3];
+        fill_segment(&mut out, Some(Rgb([0, 0, 0])), Some(Rgb([200, 200, 200])), None);
+        // Each channel sits in the gap between the two endpoints, allowing for noise.
+        for px in &out {
+            for c in 0..3 {
+                let v = px.0[c] as i32;
+                assert!((0..=210).contains(&v), "channel out of range: {v}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_context_and_no_bgc_falls_back_to_white() {
+        let mut out = vec![Rgb([0, 0, 0]); 4];
+        fill_segment(&mut out, None, None, None);
+        // All near-white: 255 ± a handful of noise.
+        for px in &out {
+            for c in 0..3 {
+                assert!(px.0[c] >= 250, "expected near-white, got {}", px.0[c]);
+            }
+        }
+    }
+
+    #[test]
+    fn no_context_with_bgc_fills_around_bgc() {
+        let bgc = Rgb([128, 64, 200]);
+        let mut out = vec![Rgb([0, 0, 0]); 4];
+        fill_segment(&mut out, None, None, Some(bgc));
+        for px in &out {
+            // noise sigma is tiny → every channel stays within a few units of bgc.
+            for c in 0..3 {
+                let diff = (px.0[c] as i32 - bgc.0[c] as i32).abs();
+                assert!(diff <= 5, "channel drifted too far: {diff}");
+            }
+        }
+    }
+}

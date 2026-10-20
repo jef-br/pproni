@@ -47,11 +47,11 @@ pub mod stage {
 /// and 6 are no longer traced; the empty strings keep the array indexable by the raw offsets.
 pub const MODEL_STEPS: [&str; 7] = [
     "",
-    "Model input (Preproc color-balancing and trim applied to approximate bbox)",
-    "Raw model output (logits, stretched)",
+    "Input: Color-balanced and trimmed OG",
+    "Output: Raw logits",
     "",
     "",
-    "Mask resampled to working resolution (what the rest of the pipeline uses)",
+    "Mask resampled to:",
     "",
 ];
 
@@ -308,13 +308,16 @@ pub fn verdict_view(working: &RgbImage, mask: &Mask, near: &[Edge], touching: &[
 /// to invent by stretching. Both are optional: a missing subject skips the cyan outline, a
 /// missing plan skips the yellow square and the grey padding. Semi-transparent red/orange bars
 /// along each gated edge sit under the outlines (red = subject touches, orange = gate flagged
-/// but refinement cleared).
+/// but refinement cleared). `strips` adds a one-pixel green/magenta strip along each gated edge
+/// showing R1's per-column stretch/inpaint call — green where the column will resample, magenta
+/// where it will fall into the inpainter.
 pub fn plan_view(
     original: &RgbImage,
     subject: Option<Rect>,
     plan: Option<(i64, i64, u32)>,
     gated: &[Edge],
     touching: &[Edge],
+    strips: &[(Edge, Vec<bool>)],
 ) -> RgbImage {
     let (w, h) = (original.width() as i64, original.height() as i64);
     let (pad_l, pad_t, pad_r, pad_b) = match plan {
@@ -337,6 +340,7 @@ pub fn plan_view(
     let thick = ((w.max(h) / 400).max(2)) as u32;
     // Semi-transparent edge bars drawn first so the subject/square outlines sit above them.
     overlay_edge_bars(&mut canvas, original.width(), original.height(), pad_l as u32, pad_t as u32, gated, touching);
+    overlay_stretch_strips(&mut canvas, original.width(), original.height(), pad_l as u32, pad_t as u32, strips);
     if let Some(s) = subject {
         outline(&mut canvas, pad_l + s.x as i64, pad_t + s.y as i64, s.w, s.h, [0, 255, 255], thick);
     }
@@ -344,6 +348,35 @@ pub fn plan_view(
         outline(&mut canvas, pad_l + sq_x, pad_t + sq_y, side, side, [255, 255, 0], thick);
     }
     canvas
+}
+
+/// One-pixel strip per gated edge: green where R1's classifier judges the column stretchable,
+/// magenta where it does not. Drawn one pixel inward from the edge so the orange bar underneath
+/// stays visible — the strip is the per-column call *inside* that band.
+fn overlay_stretch_strips(
+    canvas: &mut RgbImage,
+    w: u32,
+    h: u32,
+    pad_x: u32,
+    pad_y: u32,
+    strips: &[(Edge, Vec<bool>)],
+) {
+    const GREEN: [u8; 3] = [0, 220, 0];
+    const MAGENTA: [u8; 3] = [255, 0, 255];
+    for (edge, calls) in strips {
+        for (i, &stretchable) in calls.iter().enumerate() {
+            let colour = if stretchable { GREEN } else { MAGENTA };
+            let (x, y) = match edge {
+                Edge::Top => (i as u32, 1u32),
+                Edge::Bottom => (i as u32, h.saturating_sub(2)),
+                Edge::Left => (1u32, i as u32),
+                Edge::Right => (w.saturating_sub(2), i as u32),
+            };
+            if x < w && y < h {
+                canvas.put_pixel(pad_x + x, pad_y + y, Rgb(colour));
+            }
+        }
+    }
 }
 
 /// Blends a bar colour at 50% alpha along each gated edge of the original-image region on

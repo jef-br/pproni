@@ -30,14 +30,14 @@ off that one decision.
 | Stage | Does | Status |
 |---|---|---|
 | **A · Load** | Decode, apply EXIF orientation, read the embedded ICC profile. | `BUILT` |
-| **B · Preprocess** | Flatten alpha onto white, colour-manage to sRGB, derive the working-resolution copy. | `BUILT` |
+| **B · Preprocess** | Flatten alpha onto white, colour-manage to sRGB, derive the working-resolution copy, then run the optimiser: colour-balance (Levels, once) then trim crop, producing the image the model sees. Detail in `docs/ARCHITECTURE.md` §"Why two resolutions". | `BUILT` |
 | **C · Classify** | Segment the working copy, then decide per edge whether the subject reaches it. Emits the EIX verdict — or no verdict. | `BUILT` |
 | **D · Dispatch** | EIX verdict → one of three routes (§5). | `BUILT` |
 | **E · Route** | R1/R2 shape the square; R3 frames it safely. | `BUILT` |
 | **F · Export** | Size envelope, then JPEG + ICC, then delete the source on success. | `BUILT` |
 
-"Detect" and "classify outcome" are no longer separate phases. Segmentation produces the mask and
-the edge verdict in one pass, so there is no intermediate box to find and then classify.
+Segmentation produces the mask and the edge verdict in one pass — no intermediate box to find and
+then classify.
 
 ---
 
@@ -72,14 +72,7 @@ verdict**, when the model is unavailable or inference failed on that image.
 
 Those are different states and they route differently (§5). This answers Q3.
 
-### 3.3 What SC no longer owns
-
-SLIC superpixels, the geodesic border prior, CLAHE, histogram knee-normalisation, Otsu bins, the
-flat-background blob test and the pre/post hysteresis compare were the classical detector's
-machinery. They were deleted with it. Segmentation replaces all of them — do not reintroduce them
-piecemeal.
-
-### 3.4 Triggers
+### 3.3 Triggers
 
 SC remains the place a Phase-2 human detector would hook in (people, head-to-toe framing).
 
@@ -97,9 +90,8 @@ SC remains the place a Phase-2 human detector would hook in (people, head-to-toe
 
 ### 4.1 Edge-intersection detection `BUILT`
 
-Replaced. The 4.2% ring + Canny scheme is gone — it was the analyzer that collapsed 97% of images to
-"touches no edge". Edge intersection is now the gate/refine result described in §3.1: a decision per
-edge taken on the segmentation mask and confirmed at full resolution.
+Edge intersection is the gate/refine result described in §3.1: a decision per edge taken on the
+segmentation mask and confirmed at full resolution.
 
 ---
 
@@ -112,6 +104,11 @@ Three routes, keyed on the edge-intersection (EIX) verdict:
 | **R1** · Center & Stretch | a usable mask with room to grow | square around the subject, bled edges pinned, background stretched to fill |
 | **R2** · CropSquare | no usable mask, or no room to grow | largest square already in the frame, centred |
 | **R3** · Fallback | EIX not set — no verdict | whole image, uncropped, centred on a square canvas |
+
+**KO images never reach routing.** A source deemed unprocessable — **KO** (§9 Q7: the trimmed image,
+or its segmask, has a largest side below `800 / 1.42 ≈ 563 px`) — is a *failure*, not a route. It is
+left untouched in the INPUT folder, exactly like the backdrop-only case. Route selection only ever
+sees processable images.
 
 R2 takes three verdicts:
 
@@ -159,13 +156,13 @@ what makes R2 a route rather than a branch.
 The mask measures 474×986 flush against the top edge.
 
 ```
-vertical need   = 986 × 1.042 = 1027    # bottom is free, so the axis takes the margin
-horizontal need = 474 × 1.042 =  494
-side            = 1027
+vertical need   = 986 × 1.084 = 1069    # bottom is free, so the axis takes the margin (8.4% total)
+horizontal need = 474 × 1.084 =  514
+side            = 1069
 ```
 
-Top pinned at y=0, so all 41px of vertical slack lands under the feet: 13px of real floor already
-in frame plus 28px of new canvas, stretched from the band below her feet. Horizontally the square
+Top pinned at y=0, so all 83px of vertical slack lands under the feet: 14px of real floor already
+in frame plus 69px of new canvas, stretched from the band below her feet. Horizontally the square
 is centred on the mask and overhangs both sides, filled from the studio paper. The cut-off head is
 reproduced exactly — never stretched, never cropped.
 
@@ -173,9 +170,9 @@ reproduced exactly — never stretched, never cropped.
 subject bleeding off the top and bottom of a shallow frame. Neither vertical side may move and the
 slack has nowhere legal to go, so R1 declines and the image falls to R3.
 
-> **Data note.** The old analyzers collapsed 113 of 116 CiMini images to "0 edges". Re-measured over
-> 112 images with segmentation: **84** touch 0 edges, **12** touch 1, **12** touch 2, **2** touch 3,
-> **2** touch 4. So R1 now covers 110 of 112, and R2's remaining case is the 2 full bleeds.
+> **Data note.** Measured over 112 images with segmentation: **84** touch 0 edges, **12** touch 1,
+> **12** touch 2, **2** touch 3, **2** touch 4. So R1 covers 110 of 112, and R2's remaining case is
+> the 2 full bleeds.
 
 R3 has no row here. It is the answer to "we don't know", and it exists because a model failure must
 not be silently processed as a clean free-standing shot.
@@ -263,7 +260,7 @@ fill     left band ~400px stretches ~1.26x , right band ~800px stretches ~1.37x
          -> both <= 1.42  OK
 ```
 
-> **CONFIRM:**
+> **CONFIRM** (all dormant — §6 is `DEFERRED`, so none of these block anything today):
 > 1. `LOSS_MAX` — you said **20%** in the rule but used **~10–17%** in the example. Pick one (default set to 20%).
 > 2. The CoG number in your example (`x:200`) sits left of the MSR's own left edge (300); with a saliency-*weighted* CoG that's possible, but confirm it's weighted and not a slip.
 > 3. margin applied to the square side (4.2%) vs to a single dimension — I used the square side.
@@ -277,42 +274,47 @@ fill     left band ~400px stretches ~1.26x , right band ~800px stretches ~1.37x
 
 ## 7 · Problem map
 
-| # | Symptom | Original mechanism | Status |
-|---|---|---|---|
-| P1 | Box creeps down into hand / pants / shadow | No shadow carve in the live geodesic path; connected low-contrast bleed | Mechanism gone with the geodesic path. Segmentation does not carve shadow because it does not include it. Re-test rather than assume. |
-| P2 | Box too loose | Detection at 480px, box rescaled up with the padding baked in | Addressed — §4: boundaries confirmed at full resolution |
-| P3 | Flat shot under-detected, box cuts in | Geodesic approximates the background instead of subtracting it | Mechanism gone — no geodesic path |
-| feet | Head-to-toe model loses feet (fb_02 #9) | Low-contrast feet vs border-connected floor → flood-fill climbs in | Open. The flood-fill that caused it is gone; needs re-testing against segmentation |
-| nonna | Real-life scene → whole-frame box → double stretch | No flat background to isolate the subject; geometry stretched to hit box+margin | Open until R1 lands — §6's crop-in-first is the fix |
+| # | Symptom | Status |
+|---|---|---|
+| P1 | Subject box creeps into hand / pants / shadow | Stale — not relevant since the 512 model; segmentation does not include shadow. |
+| P2 | Subject box too loose | Addressed — §4: boundaries confirmed at full resolution. |
+| P3 | Flat shot under-detected, box cuts in | Stale — not relevant since the 512 model; re-test against segmentation if it recurs. |
+| feet | Head-to-toe model loses feet (fb_02 #9) | Stale — not relevant since the 512 model. |
+| nonna | Real-life scene → double stretch | Fixed by R1 (`BUILT`): anchors on the mask bbox and stretches background, not the whole frame (§5.1). §6's crop-in-first is R2-only, `DEFERRED`. |
 
 ---
 
 ## 8 · Decisions locked
 
 - SC is the brain, and it is segmentation-based: a BiRefNet mask plus a two-pass gate/refine edge
-  verdict. The SLIC / geodesic / CLAHE / Otsu machinery is deleted, not paused.
+  verdict.
 - **"No verdict" is a first-class outcome**, distinct from "touches no edge". It routes to R3.
 - Working size ≤1024; boundaries always confirmed at full resolution.
-- R1 is bbox-anchored: square = longest mask side + 4.2%, bled edges pinned, background stretched to fill. No saliency, no clipping of the subject, and the 42% cap suspended.
+- R1 is bbox-anchored: square = longest mask side + 8.4% (4.2% per side, `R1_MARGIN = 2.0*0.042`), bled edges pinned, background stretched to fill. No saliency, no clipping of the subject, and the 42% cap suspended.
 - CoG/MSR (§6) is R2's machinery now — the full bleed is the only case with no background to anchor against.
 - Three routes, one bleed rule: pin the bled edges, margin the free ones. Rows 0-3 of the old edge table are that rule seen from four angles and all live in R1; only the full bleed is left to R2.
 - Output 1:1 [800,2000], JPEG q90–95 4:4:4 sRGB. The envelope is enforced in the exporter — which
   every route ends at — so no route can bypass it.
-- Ships as one hardened exe with no install. Currently unmet: ONNX Runtime and the model sit beside
-  the exe. A temporary shortfall, not a change of intent.
+- Ships as one hardened exe with no install. **Met** — the ONNX Runtime and the model are both
+  embedded in the exe (the model encrypted), unpacked/decrypted at runtime, never shipped as files
+  beside it. See `docs/ARCHITECTURE.md` §5.
 
 ---
 
 ## 9 · Open questions
 
-- **Q1** · `LOSS_MAX` value (§6.4 ①) — R2 only now; R1 never clips the subject.
-- **Q2** · CoG definition — saliency-weighted centroid confirmed? (§6.4 ②)
+- **Q1** · `LOSS_MAX` value (§6.4 ①) — R2 only now; R1 never clips the subject. **Dormant:** §6
+  (CoG/MSR) is `DEFERRED`, so this blocks nothing until R2 saliency is built.
+- **Q2** · CoG definition — saliency-weighted centroid confirmed? (§6.4 ②) **Dormant:** §6 is
+  `DEFERRED`, so this blocks nothing until R2 saliency is built.
 - **Q3** · ~~SC output contract~~ — **answered**, see §3.2.
-- **Q4** · ~~SLIC patch count~~ — **moot**, SLIC is gone.
-- **Q5** · Human detector interface — what signal it returns and how §6 consumes it (Phase 2).
+- **Q5** · Human detector interface — what signal it returns and how §6 consumes it. **Parked:
+  Phase 2** — not specified until that work starts.
 - **Q6** · ~~R2's five behaviours~~ — **answered**: four of them are one rule and live in R1 (§5.1). R2 is left with the full bleed.
-- **Q7** · Small-source policy. The envelope upscales anything under 800px with no cap; the old
-  whole-image 1.42× cap is gone. Decide whether small sources should be capped, padded, or refused.
+- **Q7** · ~~Small-source policy~~ — **resolved 2026-10-20 (`PLANNED`).** A source is **KO** when,
+  after the trim, its largest dimension — or its segmask's largest dimension — falls below
+  `800 / 1.42 ≈ 563 px` (the 800px output floor divided by the old 1.42× cap). A KO image is a
+  failure: it stays in the INPUT folder, unprocessed, like the backdrop-only case. Not yet built.
 
 ---
 
@@ -331,7 +333,7 @@ fill     left band ~400px stretches ~1.26x , right band ~800px stretches ~1.37x
 | CoG/MSR crop (§6) | `DEFERRED` — R2 crops frame-centred; no image needs saliency yet |
 | Output size envelope | `BUILT` — in the exporter |
 | Save JPEG + ICC | `BUILT` |
-| Single hardened exe, no install | `NOT MET` — see `docs/ARCHITECTURE.md` §5 |
+| Single hardened exe, no install | `BUILT` — model + runtime embedded; see `docs/ARCHITECTURE.md` §5 |
 | Human detector | `PHASE 2` |
 
 ---

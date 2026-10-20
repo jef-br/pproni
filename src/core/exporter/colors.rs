@@ -6,7 +6,7 @@
 //! Nothing upstream samples colour, and nothing downstream re-measures it.
 
 use super::super::shot_classifier::Mask;
-use image::RgbImage;
+use image::{Rgb, RgbImage};
 use std::collections::HashSet;
 
 /// A colour must occupy at least this fraction of the background region (inverse mask) to be reported as BGC.
@@ -169,6 +169,18 @@ fn hex(c: [u8; 3]) -> String {
     format!("{:02x}{:02x}{:02x}", c[0], c[1], c[2])
 }
 
+/// Parse a six-digit lowercase `rrggbb` string back into an [`Rgb`]. `None` on any other shape.
+/// The pair of this function and [`hex`] is lossless.
+pub fn parse_hex(s: &str) -> Option<Rgb<u8>> {
+    if s.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some(Rgb([r, g, b]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +194,14 @@ mod tests {
 
         assert_eq!(colors.bgc.as_deref(), Some("ffffff"));
         assert_eq!(colors.fgc, None);
+    }
+
+    #[test]
+    fn parse_hex_round_trips_and_rejects_garbage() {
+        assert_eq!(parse_hex("ffffff"), Some(Rgb([255, 255, 255])));
+        assert_eq!(parse_hex("000000"), Some(Rgb([0, 0, 0])));
+        assert_eq!(parse_hex("abcdef"), Some(Rgb([0xab, 0xcd, 0xef])));
+        assert_eq!(parse_hex("abcde"), None, "wrong length");
+        assert_eq!(parse_hex("gggggg"), None, "non-hex");
     }
 }

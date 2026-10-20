@@ -73,17 +73,25 @@ pub fn load(path: &Path) -> Result<Decoded, String> {
 /// `Err` when the optimiser finds nothing but backdrop: the image is not processed.
 pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
     let mut original = flatten_onto_white(&decoded.image);
-    trace::image(trace::stage::ORIGINAL, "original: decoded, EXIF-rotated, alpha flattened on white", || original.clone());
+    trace::image(trace::stage::ORIGINAL, "Preprocess ingress: Decode, EXIF rotation, flatten alpha to white", || original.clone());
 
     // A source tagged with a non-sRGB RGB profile gets colour-managed into sRGB here, before any
     // downstream pixel math runs on it. An untagged image, or one already tagged sRGB, is left
     // untouched.
     if let Some(icc) = decoded.icc_profile.as_deref() {
         original = convert_to_srgb(original, icc);
-        trace::note(|| "colour-managed into sRGB (file had an ICC profile)".into());
+        trace::note(|| "ICC profile detected and converted to sRGB".into());
     } else {
-        trace::note(|| "no ICC profile in the file: colours left as they are".into());
+        trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
+
+    // NOTE (plan Part C): `optimizer::trim_letterbox` detects baked-in letterbox/pillarbox bars on
+    // textured scenes (mountain/268) and is unit-tested, but it is deliberately NOT wired in here
+    // yet. Trimming the bars alone regresses: on 268 it leaves a short frame that R1 then stretches
+    // to square, inventing a large smear (and shifting the edge-touch verdict). The trim is only
+    // safe once paired with Part C's re-framing (crop when a square crop preserves the mask; else
+    // the seam-carver, which needs its perceptual-quality gate tuned on the real stems in `/pair`).
+    // Until that path exists, wiring the trim would ship a worse output, so it stays a primitive.
 
     let working = downscale_to_working(&original);
 
@@ -91,7 +99,7 @@ pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
     // model finds the subject more reliably. `working` and `original` stay true-colour: the exporter
     // composes from `original` and samples BGC/FGC from `working`.
     let (model_input, crop) = optimizer::optimize(&working)?;
-    trace::note(|| format!("optimiser crop {crop:?} of the {}x{} working copy", working.width(), working.height()));
+    trace::note(|| format!("Optimiser {crop:?}\nworking copy: {}x{}", working.width(), working.height()));
     Ok(Prepared { original, working, model_input, crop })
 }
 

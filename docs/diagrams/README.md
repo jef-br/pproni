@@ -84,14 +84,12 @@ per-decision flowchart. Whenever a new snapshot moment is added:
 3. `run_dir` never creates per-image subfolders — output is one flat directory, so the
    filename alone (not folder placement) must carry both the pipeline order and the diagram
    traceability.
-4. If the value the diagram points to isn't reachable from `examples/run_dir.rs` today
-   (a private module or function), add a small `pub fn debug_*` where the value is computed,
-   then a thin wrapper in `src/core/shot_classifier/detect.rs` that handles the downscale/
-   upscale dance (mirroring `debug_segment`, which already does exactly this for
-   `segment::foreground_mask`) — this is the established pattern for every existing
-   `debug_*` helper, so new ones should route through `detect.rs` the same way rather than
-   exposing a new module as `pub`. This does touch existing core files; get an explicit OK
-   first if that constraint hasn't already been relaxed for the session.
+4. If the value the diagram points to isn't reachable from `examples/run_dir.rs` today,
+   expose it through the classifier's existing public API — the way `run_dir` already reads
+   `SegmentationModel::segment` and `classify_instance` — by adding a minimal `pub` accessor on
+   the module that computes it. (The old `detect.rs` / `debug_*` wrapper pattern was retired with
+   the classical detector; there is no `detect.rs` to route through now.) This touches core files;
+   get an explicit OK first.
 
 Current mapping (as of this writing, what `run_dir` writes): `3-class_10_SEGMASK` and
 `3-class_20_REFINE`. These are the only two green tags on `JBA2B.drawio.svg`; the older
