@@ -44,8 +44,8 @@ Last updated: 2026-10-21.
   BGC is now sampled on every image.
 * Letterbox/bar detector moved into the preprocessor (`Prepared::letterbox`), per plan Part C: an
   opposite pair `FlatOther` and the other pair `Varied`; texture outside `product_box` on the trimmed
-  interior. Stage image 02 shows it. Consequence: same-colour bars read as backdrop, so 41, 46 (and
-  slightly 30, 33, 35) are no longer reframed and R1 stretches their white bars. Open for the user.
+  interior. Stage image 02 shows it. Consequence: same-colour bars read as backdrop, so the detector
+  misses 41, 46 (and slightly 30, 33, 35). That is now handled by `core::framing` (next section).
 
 ## Decided 2026-10-21: the trims and framing (`optimizer::optimize_both`, `core::framing`)
 * **One model run.** BiRefNet is shown trim 1's backed-off crop, once. Its mask is the one reliable fact
@@ -57,9 +57,10 @@ Last updated: 2026-10-21.
 * **Framing** (`core::framing::decide`, after the model run, pure and unit-tested; the reason is one
   log line per image, `framing: ...`, in `<n>  -  log.txt`):
   * **Bars**: trim 1 cut both sides of ONE axis (the other axis loses at most `FRAMING_OTHER_AXIS_SLACK`
-    = 2% in total) and the subject touches an edge (EIX not `0000`) -> `Framing::CentreContent`. R1
-    (`plan_square`) then cuts a square as wide as the content's longer side, no margin, centred on the
-    content: equal padding either side, aligned on nothing. Trim 2 is NOT needed for this (on 41 and 30
+    = 2% in total), the subject touches an edge (EIX not `0000`) and the two cut sides are of similar
+    width -> `Crop` (one edge, smooth content) or `Framing::CentreContent` (otherwise; see the decisions
+    below). CentreContent: R1 (`plan_square`) cuts a square as wide as the content's longer side, no
+    margin, centred on the content: equal padding either side, aligned on nothing. Trim 2 is NOT needed for this (on 41 and 30
     it did move; the user had expected it not to).
   * **Frame**: EIX `0000`, trim 1 cut all four sides, trim 2 did not move, trim 1's box is square
     (`FRAMING_SQUARE_TOLERANCE` 2%), and it is NOT the product itself (not within
@@ -68,8 +69,8 @@ Last updated: 2026-10-21.
     `working` and the mask are cropped and only the edge check (`judge`) runs again. 45 becomes
     EIX 0010 with the blade running off the bottom, as the user wanted.
   * Everything else: `Keep`, R1 as before.
-* Fired on the 49 set: Peel on 45 only. CentreContent on 3 (R2 route, no effect), 19, 33, 35, 41, 46;
-  output changes on 19, 35, 41, 46.
+* First run on the 49 set (before the 2026-10-21 decisions below): Peel on 45; CentreContent on 3 (R2
+  route, no effect), 19, 33, 35, 41, 46. Now: Crop on 41; CentreContent on 3, 33, 35, 46; 19 is Keep.
 * **Decided 2026-10-21 (images 19, 41, 46, and the margin):**
   * Added without being asked, and kept: `FRAMING_BARS_SYMMETRY` (0.3). The bars rule also needs the two
     cut sides to be of similar width; 19 is 0.05, real bars 0.5-1.0. 19's "bars" are plain backdrop, so

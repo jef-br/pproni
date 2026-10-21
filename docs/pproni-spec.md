@@ -131,7 +131,8 @@ pinned. **An edge the subject bleeds off is blocked**: the square may not move i
 subject continues past it and background invented there would be painted over a subject we cannot
 see. Everything else follows, per axis:
 
-- **Size.** An axis with at least one free side needs `extent × (1 + margin)`. An axis blocked at
+- **Size.** Each free side of an axis takes half the margin (4.2% of the extent): two free sides need
+  `extent × (1 + margin)`, one free side `extent × (1 + margin / 2)`. An axis blocked at
   both ends needs exactly `extent` — there is no gap to leave and nothing to leave it with. The
   square's side is the larger of the two needs.
 - **Placement.** An axis's slack goes to its free sides: split evenly when both are free, all of it
@@ -140,7 +141,7 @@ see. Everything else follows, per axis:
 | edges | what the rule produces | old wording |
 |---|---|---|
 | 0 | both axes take the margin, both split it evenly | free-standing |
-| 1 | that edge pinned, the whole margin on the opposite side | flush to that edge, centre the other axis |
+| 1 | that edge pinned, 4.2% on the opposite side | flush to that edge, centre the other axis |
 | 2 opposite | that axis takes no margin and fills exactly | fill that whole axis |
 | 2 adjacent | both pinned, slack onto the two free sides | flush into the shared corner |
 | 3 | slack entirely onto the one free side | fill the boxed-in axis |

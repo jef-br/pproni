@@ -6,7 +6,8 @@ Project notes for any Claude session working in this repo.
 One crate, one `src/` tree.
 * `src/app/` — host shell: folder flow, batch, i18n.
 * `src/core/` — the pipeline: `load → preprocess → classify → dispatch → export`,
-  one module per stage. The shot classifier lives at `src/core/shot_classifier/`.
+  one module per stage. The shot classifier lives at `src/core/shot_classifier/`. `core::framing`
+  (bars and frames) runs between classify and dispatch.
 * `examples/`, `tools/` — the BiRefNet dev harness and the ONNX export script.
 
 ## Ships as one hardened exe, no install

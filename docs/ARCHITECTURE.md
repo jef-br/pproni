@@ -16,7 +16,7 @@ diagram drifted.
 
 ## 1. Pipeline
 
-`core::process_file` runs five stages in order. `app::batch::run` fans this over every image in the
+`core::process_file` runs five stages in order, with a framing step (`core::framing`) between classify and dispatch. `app::batch::run` fans this over every image in the
 input folder with `rayon`; on success the source file is moved to the backup folder (`PPRONI-BACKUP`),
 on failure it is left in place.
 
@@ -29,6 +29,7 @@ load ──▶ preprocess ──▶ classify ──▶ dispatch ──▶ export
 | **load** | `core::preprocessor::load` | path → `Decoded` (image + ICC profile, EXIF applied) |
 | **preprocess** | `core::preprocessor::preprocess` | `Decoded` → `Prepared` (sRGB, alpha flattened, + true-colour working copy + the optimiser's crop); `Err` for an image with nothing but backdrop |
 | **classify** | `core::classify` (private) | `Prepared` → `Option<(ShotClassification, Mask)>` |
+| *framing* | `core::framing::decide` (in `process_file`) | trims + mask → `Keep`, `Centre`, `Crop` or `Peel`; `Crop` and `Peel` crop the picture, `Centre` sets `Prepared::framing` |
 | **dispatch** | `core::processor::routes::dispatch` | `Prepared` + verdict → `RgbImage` |
 | **export** | `core::exporter::export` | `RgbImage` (+ optional `ShotInputs`) → size envelope → JPEG on disk, source moved to `PPRONI-BACKUP` |
 
@@ -41,7 +42,7 @@ debug tags below.
 `config::WORKING_SIZE` on its longest side (both true colour), and `model_input`, the image BiRefNet
 sees: `working` after the optimiser. `Prepared::crop` says where `model_input` was cut from `working`.
 
-The optimiser is one function, `preprocessor::optimizer::optimize`, and does two things in order:
+The optimiser is `preprocessor::optimizer::optimize_both` (`optimize` wraps it and keeps only the model input and the crop). It does two things in order, then a control:
 
 1. **Colour balance.** A Levels move worked out once per image: per channel it finds `lo` (the highest
    value with at most 0.68% of the pixels at or below it) and `hi` (the 99.32 percentile), shares the
@@ -60,6 +61,9 @@ The optimiser is one function, `preprocessor::optimizer::optimize`, and does two
    shrinks if the frame is too narrow; if the product is longer than the frame's short side no square
    fits, the margin drops to 10 px and the crop is cut at the frame). No product left: `Err`, the image is not processed and
    stays in the input folder.
+3. **Trim 2, the control** (`recheck_box`): the same trim run again on trim 1's box. It counts as moved when
+   a side differs by more than `TRIM_RECHECK_TOLERANCE_PX` (2). The model never sees it; `core::framing`
+   reads both boxes against the mask.
 
 `core::classify` shows the model only that crop, wrapped in `shot_classifier::CroppedModel`, which
 pastes the returned mask into a blank working-size canvas at the crop position (full-frame box). The
@@ -107,7 +111,7 @@ it — that is expected, not drift.
 |---|---|
 | `core` | `process_file(input, output) -> Result<(), String>` |
 | `core::config` | `JPEG_QUALITY`, `WORKING_SIZE`, `GATE_MARGIN_PX`, `REFINE_BAND_PX`, `REFINE_SAFETY_PX`, `REFINE_CONTEXT_PX` |
-| `core::preprocessor` | `Decoded`, `Prepared`, `load`, `preprocess`, `prepare`; `optimizer::optimize` |
+| `core::preprocessor` | `Decoded`, `Prepared`, `Trims`, `Framing`, `load`, `preprocess`, `prepare`; `optimizer::optimize`, `optimize_both`, `detect_letterbox` |
 | `core::framing` | `decide`, `Decision` (`Keep`, `Centre`, `Crop`, `Peel`), `border_colour`, `deepen_peel` |
 | `core::processor::routes` | `Route`, `Route::select`, `dispatch` |
 | `core::processor::routes::{center_and_stretch, crop_square, fallback}` | `apply` |
