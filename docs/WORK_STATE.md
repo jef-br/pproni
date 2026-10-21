@@ -1,7 +1,7 @@
 # Pproni work state
 
 Read this first. Keep it short. Update it at the end of each work session.
-Last updated: 2026-10-16.
+Last updated: 2026-10-21.
 
 ## Decided
 * The 512 model (`birefnet_lite_512.onnx`) is canonical — proven to work, and what `build.rs`
@@ -26,6 +26,78 @@ Last updated: 2026-10-16.
 * No retries, no guards, no fallbacks anywhere in the trim. Add none without asking.
 * Goal now: improve results by refining the preprocessor, not by fine-tuning the model.
 
+## Decided 2026-10-21: R1 stretch rework (user spec; code in `center_and_stretch/compose.rs`)
+* One line at a time (a row in pass 1, a column in pass 2; pass 2 is the same code on the transposed
+  picture). Product band = silhouette grown by one clearance (`R1_FILL_SOURCE_CLEARANCE_WORKING_PX`, a
+  disc, per row and per column). It replaces the old `safety` + `clearance` pair.
+* The source on each side is stretched: 0% next to the product, up to +100% at the border, curve
+  `x^(e*1.68)` (`R1_STRETCH_CURVE_POWER`). All of a line's stretch is only ~18% of its source length;
+  the rest of the overhang is invented. A line's stretch is averaged with its neighbouring lines and
+  never exceeds what that line needs.
+* Invented pixels: proposal = the mirrored stretched pixel (or a neighbour's colour when the source is
+  shorter than the neighbour radius), clamped to the background's min/max. When the BGC lies inside
+  that range it is the boxplot median, and the proposal is averaged with the reference value at its
+  quantile (quantile from brightness, one for all channels). The reference is the background of the
+  lines within 3 x radius, not the whole side: a whole-side reference amplified noise 3-12x on
+  gradient backdrops (measured on 22).
+* Removed: gating (`gated`, BGC tolerance, local-BGC fallback, `classify_edge`, the stage-90 strip overlay).
+  BGC is now sampled on every image.
+* Letterbox/bar detector moved into the preprocessor (`Prepared::letterbox`), per plan Part C: an
+  opposite pair `FlatOther` and the other pair `Varied`; texture outside `product_box` on the trimmed
+  interior. Stage image 02 shows it. Consequence: same-colour bars read as backdrop, so 41, 46 (and
+  slightly 30, 33, 35) are no longer reframed and R1 stretches their white bars. Open for the user.
+
+## Decided 2026-10-21: the trims and framing (`optimizer::optimize_both`, `core::framing`)
+* **One model run.** BiRefNet is shown trim 1's backed-off crop, once. Its mask is the one reliable fact
+  about the picture; nothing re-runs the model (the earlier guard that re-ran it on trim 2's crop was
+  dropped: it changed 24 and 37 by 1-2 px only).
+* **Trim 2** (`recheck_box`) re-runs the trim on trim 1's tight box; it counts as "moved" when any side
+  differs by MORE than `TRIM_RECHECK_TOLERANCE_PX` (2). It is information only (`Prepared::trims`).
+  Stage image 03: trim 1 cyan, trim 2 yellow (only when it moved), the crop green.
+* **Framing** (`core::framing::decide`, after the model run, pure and unit-tested; the reason is one
+  log line per image, `framing: ...`, in `<n>  -  log.txt`):
+  * **Bars**: trim 1 cut both sides of ONE axis (the other axis loses at most `FRAMING_OTHER_AXIS_SLACK`
+    = 2% in total) and the subject touches an edge (EIX not `0000`) -> `Framing::CentreContent`. R1
+    (`plan_square`) then cuts a square as wide as the content's longer side, no margin, centred on the
+    content: equal padding either side, aligned on nothing. Trim 2 is NOT needed for this (on 41 and 30
+    it did move; the user had expected it not to).
+  * **Frame**: EIX `0000`, trim 1 cut all four sides, trim 2 did not move, trim 1's box is square
+    (`FRAMING_SQUARE_TOLERANCE` 2%), and it is NOT the product itself (not within
+    `TRIM_SEGMASK_TOLERANCE_PX` = 8 of the mask box) and contains the mask -> peel: `deepen_peel` goes on
+    inward while a line is >=99% frame colour outside the mask (+1 line of erosion), then `original`,
+    `working` and the mask are cropped and only the edge check (`judge`) runs again. 45 becomes
+    EIX 0010 with the blade running off the bottom, as the user wanted.
+  * Everything else: `Keep`, R1 as before.
+* Fired on the 49 set: Peel on 45 only. CentreContent on 3 (R2 route, no effect), 19, 33, 35, 41, 46;
+  output changes on 19, 35, 41, 46.
+* **Decided 2026-10-21 (images 19, 41, 46, and the margin):**
+  * Added without being asked, and kept: `FRAMING_BARS_SYMMETRY` (0.3). The bars rule also needs the two
+    cut sides to be of similar width; 19 is 0.05, real bars 0.5-1.0. 19's "bars" are plain backdrop, so
+    it is `Keep`: bottom pinned, subject centred.
+  * R1 margin: one free side of an axis gets 4.2%, two free sides 8.4%, both pinned none
+    (`plan.rs`, spec §5 example 28 redone). It changed 18, 19, 22, 28, 29, 32, 34, 41, 45, 47.
+  * Bars with ONE touched edge and smooth content (`Decision::Crop`): the bars are cut off, the verdict
+    is kept (EIX cannot flip), R1 frames the content: 41 gets the bottom pinned, 4.2% on top, the
+    background stretched over the whole canvas. Busy content (46: texture 69.5, 41: 10.0, threshold
+    `T_TEXTURE_HIGHPASS` 12.5) stays `Centre` with white padding: stretching it smeared the photo.
+    Two or more touched edges stay `Centre` (3, 33, 35).
+* Clearance (20 working px) and the other framing thresholds: kept, no problem measured. The user allowed
+  tuning if one shows up. 41's texture (10.0) is only 2.5 under the threshold.
+* The stale `jbPAUSE` tags and "unwired" comments are removed (the Part C reframe is wired and decided by
+  `core::framing`); none was turned into a `jbpair`.
+* The user suggested erosion/dilation to plug holes in trim 1's region if a trim failed; not needed so
+  far (`product_box` already closes with a 2x2 window).
+
+## Fixed 2026-10-21 (user review of the rework)
+* Image 1 had a horizontal step above the right shoe: the product band is one span per line, and the
+  right shoe starts a few lines after the left one, so the band's edge jumped 575 px in one line.
+  Fix: the band edge may now move at most `R1_BAND_SLOPE_PX_PER_LINE` (1) per line (only widening).
+* Image 36's overhang: stretch read with a cubic (Catmull-Rom) instead of linear, and invented pixels
+  fade from the mirrored detail into the neighbours' average colour with distance from the seam.
+  Studio backgrounds got closer to the real noise level too (22: 0.61 -> 0.34, real 0.26).
+* 45 (dark frame round the picture): fixed by the frame peel above. R1 had been inventing the bottom overhang
+  from the frame bar.
+
 ## Rejected
 * Raw-colour retry (adds another path).
 * Blind zoom-to-65% retry.
@@ -48,18 +120,18 @@ whole-frame guard, whole-frame retry, tolerance numbers) were not asked for and 
   the user meant.** A dedicated planning conversation is needed — walk through the user's
   definition of lifestyle/ambiance (what the image looks like, what the segmask + border
   samples will show, what the desired output is) and agree on the routing *before* any code.
-* **Telea / fast-marching inpaint** — kept on standby. The current classical fill is
-  edge-aware lateral copy (`center_and_stretch::inpaint::fill_segment`). If visible striping
-  shows up at corners where only one neighbour context exists, promote to narrow-band Telea
-  before anything else.
+* **Weak spots of the 2026-10-21 rework** (run on the 49-image set, scratch): the strip under the feet
+  on 22 (small source, shadow gets mirrored: blotchy), and rough invented noise 2-3x the real
+  background's on smooth studio backdrops (invisible below 1 level). Not tuned yet: clearance (20
+  working px), neighbour radius (24 px), reference window (3x radius).
+* **Telea / fast-marching inpaint** — kept on standby. `center_and_stretch::inpaint::fill_segment` now
+  only fills lines with no background at all (flat BGC/white). If a wider inpainter is needed it
+  slots in there.
 * **ONNX LaMa-style inpaint kicker** — for truly textured scenes (lifestyle), the long-term
   option is embedded like BiRefNet (`shot_classifier::birefnet` + `cipher` + `build.rs`).
-* **BGC confidence** — `colors::sample` returns a binary pass/fail. A dominant-cluster fraction
-  would let R1 treat weakly-dominant backdrops more gracefully. `TODO(bgc-confidence)` left in
-  `compose::local_edge_bgc`'s neighbourhood.
-* **Pass-2 subtlety** — pass-2 classification reads `mid` (pass-1 output). A column pass-1
-  inpainted with a lerp between two shoe pixels could land near BGC and re-stretch at pass 2.
-  Rare in practice; known second-order effect.
+* **BGC confidence** — `colors::sample` returns a binary pass/fail. R1 now judges per line whether
+  the BGC is "close enough" (inside the nearby background's min/max), so a weak BGC is simply not
+  believed there. A dominant-cluster fraction is no longer needed for R1.
 
 ### Older open items
 

@@ -47,6 +47,21 @@ impl Mask {
         Mask { width: canvas_w, height: canvas_h, data }
     }
 
+    /// The part of this mask inside `region`, as a mask of its own with its top left corner at `(0, 0)`.
+    /// Whatever of `region` falls outside this mask counts as background.
+    pub fn cropped(&self, region: Rect) -> Mask {
+        let (w, h) = (region.w.max(1), region.h.max(1));
+        let mut data = vec![0u8; w as usize * h as usize];
+        for y in 0..h {
+            for x in 0..w {
+                if self.get(region.x + x, region.y + y) {
+                    data[(y * w + x) as usize] = 255;
+                }
+            }
+        }
+        Mask { width: w, height: h, data }
+    }
+
     /// Nearest-neighbor upsamples the sub-region `region` (in this
     /// mask's own coordinate space) to a `target_w x target_h` mask.
     /// Used to project the working-resolution mask into a full
@@ -177,5 +192,23 @@ mod tests {
         let model = CroppedModel::new(&AllForeground, (50, 40), Rect { x: 0, y: 0, w: 50, h: 40 });
         let found = model.segment(&RgbImage::new(50, 40)).unwrap().remove(0);
         assert!(found.mask.data.iter().all(|&v| v == 255));
+    }
+
+    /// Cropping takes the part inside the region and moves it to the origin.
+    #[test]
+    fn a_cropped_mask_is_the_part_inside_the_region_at_the_origin() {
+        let mask = Mask { width: 10, height: 10, data: vec![0; 100] }
+            .pasted_into(10, 10, 0, 0);
+        let mut mask = mask;
+        for y in 2..5 {
+            for x in 3..7 {
+                mask.data[y * 10 + x] = 255;
+            }
+        }
+        let c = mask.cropped(Rect { x: 2, y: 1, w: 6, h: 5 });
+        assert_eq!((c.width, c.height), (6, 5));
+        assert!(c.get(1, 1) && c.get(4, 3), "marked pixels move by the region's corner");
+        assert!(!c.get(0, 0) && !c.get(5, 4));
+        assert_eq!(c.data.iter().filter(|&&v| v > 0).count(), 12);
     }
 }

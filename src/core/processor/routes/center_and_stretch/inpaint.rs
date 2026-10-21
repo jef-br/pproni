@@ -1,13 +1,14 @@
-//! R1 fallback: fill an unstretchable sub-range of a scanline instead of resampling it.
+//! R1 fallback: fill a segment of a line that has no background to stretch from.
 //!
-//! A column (or row) is "unstretchable" when the gate-flagged band near its edge is not clean
-//! background — a shoe fragment, a cast shadow, a textured scene — and so resampling it would
-//! smear that fragment across the overhang. Those sub-ranges land here. Everything stretchable
-//! stays with [`super::compose::resample`]; this module never touches them.
+//! A line (a row in pass 1, a column in pass 2) is *fully bled* on one side when the product,
+//! grown by the clearance, runs to the border there: there is nothing to stretch and nothing to
+//! invent from. Those segments land here and get a flat BGC-or-white fill; the caller may then
+//! replace them with a clean neighbouring line's background. Every line that does have a source
+//! stays with [`super::compose`]; this module never touches them.
 //!
-//! The classical fill is edge-aware lateral copy from clean neighbours, with a BGC-or-white
-//! fallback. If a wider inpainter proves necessary (narrow-band Telea / fast-marching, or an
-//! ONNX LaMa-style model), it slots in here behind the same [`fill_segment`] signature.
+//! The context-colour fills ([`fill_segment`]'s `left_ctx`/`right_ctx` arms) are not used by R1 any
+//! more. If a wider inpainter proves necessary (narrow-band Telea / fast-marching, or an ONNX
+//! LaMa-style model), it slots in here behind the same [`fill_segment`] signature.
 
 use image::Rgb;
 

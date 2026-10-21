@@ -25,12 +25,12 @@
 //!
 //! ## Deliberately not validated
 //!
-//! The background band is taken as trustworthy from `safety_px` outside the mask all the way to
-//! the border. Two validations of it were designed and then *deferred*, not forgotten: trimming a
-//! flat, artificial background run off the outer end, and advancing the inner end past a cast
-//! shadow the mask does not cover. Plain resampling of the whole band proved good enough on the
-//! test set, so neither is worth its complexity until an image argues otherwise. The argument will
-//! look like a smeared shadow, or a stretched band of the wrong colour along one side.
+//! The background is taken as trustworthy from the grown silhouette (see [`Silhouette`]) all the
+//! way to the border. Two validations of it were designed and then *deferred*, not forgotten:
+//! trimming a flat, artificial background run off the outer end, and advancing the inner end past a
+//! cast shadow the mask does not cover. Neither is worth its complexity until an image argues for
+//! it. The argument will look like a smeared shadow, or a stretched band of the wrong colour along
+//! one side.
 
 pub mod compose;
 pub mod extend;
@@ -38,67 +38,126 @@ pub mod inpaint;
 pub mod plan;
 
 use super::super::super::config;
-use super::super::super::preprocessor::Prepared;
+use super::super::super::preprocessor::{Framing, Prepared};
 use super::{fallback, Shot};
-use crate::core::shot_classifier::Mask;
+use crate::core::shot_classifier::{geometry::Rect, Edge, Mask};
 use crate::core::trace;
 use image::RgbImage;
 use plan::{Pins, SquarePlan};
 
-/// Per-row reach of the silhouette in *original*-image coordinates: the min/max column the mask
-/// occupies on each row, or `None` where the row holds no subject.
+/// The product silhouette, grown outward, as the span it covers on every row and every column of
+/// the *original* image. The grown silhouette is the product band: copied untouched, never a stretch
+/// source. Growing it is what keeps a cuff, an edge or a tiny shadow hugging the product out of the
+/// stretch (plan A.2).
 ///
-/// Built once from the working-resolution mask, scaled up. Pass 1 of [`compose::compose`] uses it
-/// so the untouched product band follows the actual silhouette rather than its bounding box — true
-/// background the bbox over-claims on a narrow row becomes stretchable again (the plan's A.1). A
-/// row with no subject keeps the bbox band, so background rows behave exactly as before, and a
-/// rectangular mask reproduces the bbox on every row — which is why every existing test is
-/// unaffected.
+/// Built once from the working-resolution mask, scaled up, then grown by `grow` pixels in every
+/// direction (a disc, not a square). Rows or columns the grown shape does not reach take the span of
+/// the nearest one that has it, so the product band changes smoothly from one line to the next
+/// instead of jumping between the silhouette and the bounding box.
 pub struct Silhouette {
-    /// Indexed by original-image `y`. `Some((min_x, max_x))` inclusive, or `None`.
-    pub row_x: Vec<Option<(u32, u32)>>,
+    /// Indexed by original-image `y`: the columns `[lo, hi)` the grown silhouette covers.
+    pub row_x: Vec<(i64, i64)>,
+    /// Indexed by original-image `x`: the rows `[lo, hi)` the grown silhouette covers.
+    pub col_y: Vec<(i64, i64)>,
 }
 
 impl Silhouette {
-    pub fn from_mask(mask: &Mask, orig_w: u32, orig_h: u32) -> Silhouette {
+    pub fn from_mask(mask: &Mask, orig_w: u32, orig_h: u32, grow: u32) -> Silhouette {
         let fx = mask.width as f32 / orig_w.max(1) as f32;
         let fy = mask.height as f32 / orig_h.max(1) as f32;
-        let mut row_x = vec![None; orig_h as usize];
+        let mut rows: Vec<Option<(i64, i64)>> = vec![None; orig_h as usize];
+        let mut cols: Vec<Option<(i64, i64)>> = vec![None; orig_w as usize];
         for oy in 0..orig_h {
             let my = (((oy as f32 + 0.5) * fy) as u32).min(mask.height.saturating_sub(1));
-            let (mut lo, mut hi) = (u32::MAX, 0u32);
             for ox in 0..orig_w {
                 let mx = (((ox as f32 + 0.5) * fx) as u32).min(mask.width.saturating_sub(1));
                 if mask.get(mx, my) {
-                    lo = lo.min(ox);
-                    hi = hi.max(ox);
+                    let (x, y) = (ox as i64, oy as i64);
+                    let r = &mut rows[oy as usize];
+                    *r = Some(r.map_or((x, x), |(lo, hi)| (lo.min(x), hi.max(x))));
+                    let c = &mut cols[ox as usize];
+                    *c = Some(c.map_or((y, y), |(lo, hi)| (lo.min(y), hi.max(y))));
                 }
             }
-            if lo != u32::MAX {
-                row_x[oy as usize] = Some((lo, hi));
-            }
         }
-        Silhouette { row_x }
+        let slope = config::R1_BAND_SLOPE_PX_PER_LINE as i64;
+        Silhouette { row_x: grow_spans(&rows, grow as i64, slope), col_y: grow_spans(&cols, grow as i64, slope) }
     }
 }
 
-/// How far outside the mask the background is trusted, in full-resolution pixels.
+/// Grow per-line spans `(lo, hi)` (inclusive) by a disc of radius `r` and return them as `[lo, hi)`.
 ///
-/// Two errors stack: the mask's own boundary is only good to a couple of *working*-resolution
-/// pixels, which is that many times the upscale factor once it lands here, and the full-resolution
-/// boundary is itself soft by a pixel or two. Doubled for headroom.
-fn safety_px(prep: &Prepared) -> u32 {
-    (2.0 * (config::R1_SAFETY_MASK_PX * working_scale(prep) + config::R1_SAFETY_EDGE_PX)).round() as u32
+/// A line's grown span is the union of the spans of the lines within `r` of it, each widened by the
+/// disc's reach at that distance. Lines the disc does not reach take the span of the nearest line
+/// that has one (the earlier one on a tie); with no span anywhere they come out empty. Last, no edge
+/// is allowed to move faster than `slope` pixels per line: an edge that would is pulled outward from
+/// the line where it jumps, so the span only ever widens.
+fn grow_spans(spans: &[Option<(i64, i64)>], r: i64, slope: i64) -> Vec<(i64, i64)> {
+    let n = spans.len() as i64;
+    let reach: Vec<i64> = (0..=r).map(|d| ((r * r - d * d) as f64).sqrt().floor() as i64).collect();
+    let mut grown: Vec<Option<(i64, i64)>> = vec![None; spans.len()];
+    for y in 0..n {
+        let (mut lo, mut hi) = (i64::MAX, i64::MIN);
+        for d in -r..=r {
+            let yy = y + d;
+            if yy < 0 || yy >= n {
+                continue;
+            }
+            if let Some((l, h)) = spans[yy as usize] {
+                let e = reach[d.unsigned_abs() as usize];
+                lo = lo.min(l - e);
+                hi = hi.max(h + e);
+            }
+        }
+        if lo <= hi {
+            grown[y as usize] = Some((lo, hi + 1));
+        }
+    }
+    // Nearest line that has a span, from both directions.
+    let mut before: Vec<Option<usize>> = vec![None; spans.len()];
+    let mut last = None;
+    for (i, g) in grown.iter().enumerate() {
+        if g.is_some() {
+            last = Some(i);
+        }
+        before[i] = last;
+    }
+    let mut after: Vec<Option<usize>> = vec![None; spans.len()];
+    let mut next = None;
+    for (i, g) in grown.iter().enumerate().rev() {
+        if g.is_some() {
+            next = Some(i);
+        }
+        after[i] = next;
+    }
+    let mut out: Vec<(i64, i64)> = (0..spans.len())
+        .map(|i| {
+            let pick = match (before[i], after[i]) {
+                (Some(b), Some(a)) => if i - b <= a - i { b } else { a },
+                (Some(b), None) => b,
+                (None, Some(a)) => a,
+                (None, None) => return (0, 0),
+            };
+            grown[pick].unwrap_or((0, 0))
+        })
+        .collect();
+    // Slope limit: a cone along the lines, `lo` pulled down and `hi` pushed up (forward, then back).
+    // Lines with no span anywhere (all `(0, 0)`) are left alone.
+    if grown.iter().any(|g| g.is_some()) {
+        for i in 1..out.len() {
+            out[i].0 = out[i].0.min(out[i - 1].0 + slope);
+            out[i].1 = out[i].1.max(out[i - 1].1 - slope);
+        }
+        for i in (0..out.len().saturating_sub(1)).rev() {
+            out[i].0 = out[i].0.min(out[i + 1].0 + slope);
+            out[i].1 = out[i].1.max(out[i + 1].1 - slope);
+        }
+    }
+    out
 }
 
-/// How many full-resolution pixels inward from a gated edge the stretch/inpaint classifier probes
-/// — the working-space constant `R1_STRETCH_PROBE_LEN_WORKING_PX` scaled up to original pixels.
-fn probe_px(prep: &Prepared) -> u32 {
-    (config::R1_STRETCH_PROBE_LEN_WORKING_PX as f32 * working_scale(prep)).round().max(1.0) as u32
-}
-
-/// How many full-resolution pixels of silhouette-adjacent background are kept out of the stretch
-/// source — `R1_FILL_SOURCE_CLEARANCE_WORKING_PX` scaled to original pixels (plan A.2).
+/// How many full-resolution pixels the silhouette is grown by: `R1_FILL_SOURCE_CLEARANCE_WORKING_PX`
+/// scaled up to original pixels (plan A.2).
 fn clearance_px(prep: &Prepared) -> u32 {
     (config::R1_FILL_SOURCE_CLEARANCE_WORKING_PX as f32 * working_scale(prep)).round() as u32
 }
@@ -116,35 +175,68 @@ pub fn apply(prep: &Prepared, shot: Shot<'_>) -> RgbImage {
         trace::note(|| "R1: the mask is empty, so there is no subject to centre on: using R3 framing".into());
         return fallback::apply(prep);
     };
-    // The edges the subject bleeds off are the ones the square may not move. `None` means no
-    // square can respect them all — R3 frames the image safely rather than R1 guessing.
-    let pins = Pins::from_edges(&shot.class.touches_edges);
-    let Some(plan) = SquarePlan::new(subject, config::R1_MARGIN, pins) else {
-        trace::note(|| format!("R1: no square can respect the bled edges {pins:?}: using R3 framing"));
+    // A textured scene with flat letterbox/pillarbox bars must be re-framed, not stretched: R1's
+    // stretch invents a smeared band across a textured overhang (measured on 268/46). The
+    // preprocessor's detector (`prep.letterbox`) fires only on genuine bars-plus-textured-interior —
+    // a freestanding product on a plain backdrop has flat edges on both axes, so it never fires and
+    // `EIX0000` cannot flip. Runs after the subject guard so the mask gives the real subject box.
+    if let Some(keep) = prep.letterbox {
+        trace::note(|| format!("R1 → Part C: textured scene, reframing on the trimmed {keep:?} rather than stretching"));
+        let trimmed = image::imageops::crop_imm(&prep.original, keep.x, keep.y, keep.w, keep.h).to_image();
+        return extend::reframe_to_square(&trimmed, subject_into(subject, keep));
+    }
+    // `None` means no square can respect the bled edges — R3 frames the image safely rather than R1
+    // guessing.
+    let Some(plan) = plan_square(prep, subject, &shot.class.touches_edges) else {
+        trace::note(|| "R1: no square can respect the bled edges: using R3 framing".into());
         return fallback::apply(prep);
     };
-    // Every edge the pass-1 gate flagged — including the ones refinement then cleared ("orange").
-    // Clean edges aren't in the list, so an image with no gated edge still runs the same code path
-    // compose always has, which keeps the no-gate case fully resample-only.
-    let gated: Vec<_> = shot.class.refinements.iter().map(|r| r.edge).collect();
-    let silhouette = Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height());
-    compose::compose(
-        &prep.original,
-        &plan,
-        subject,
-        &silhouette,
-        safety_px(prep),
-        clearance_px(prep),
-        &gated,
-        shot.bgc,
-        probe_px(prep),
-    )
+    let silhouette =
+        Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height(), clearance_px(prep));
+    compose::compose(&prep.original, &plan, &silhouette, shot.bgc, config::R1_FILL_INPAINT_RADIUS_PX)
+}
+
+/// Where R1's square goes.
+///
+/// Normally it is planned from the subject: the edges the subject bleeds off are the ones the square
+/// may not move ([`SquarePlan::new`]). When `core::framing` found white bars on one axis
+/// ([`Framing::CentreContent`]) it is cut from the content box instead: as wide as the box's longer
+/// side, no margin, centred on the box — equal padding either side of the shorter axis, aligned on
+/// nothing. Whatever of the square falls outside the picture is filled as always.
+pub fn plan_square(prep: &Prepared, subject: Rect, touches: &[Edge]) -> Option<SquarePlan> {
+    if let Framing::CentreContent(content) = prep.framing {
+        let (fx, fy) = (
+            prep.original.width() as f32 / prep.working.width().max(1) as f32,
+            prep.original.height() as f32 / prep.working.height().max(1) as f32,
+        );
+        let (x0, y0) = ((content.x as f32 * fx).round() as i64, (content.y as f32 * fy).round() as i64);
+        let (w, h) = ((content.w as f32 * fx).round() as i64, (content.h as f32 * fy).round() as i64);
+        let side = w.max(h).max(1);
+        return Some(SquarePlan {
+            side: side as u32,
+            x: x0 + (w - side).div_euclid(2),
+            y: y0 + (h - side).div_euclid(2),
+        });
+    }
+    SquarePlan::new(subject, config::R1_MARGIN, Pins::from_edges(touches))
+}
+
+/// Re-express `subject` (original coordinates) relative to the trimmed `keep` sub-rect, clamped to
+/// it. The trimmed bars are background, so the subject normally lies wholly inside `keep`; the
+/// clamp only guards a subject box that grazes a trimmed band.
+fn subject_into(subject: Rect, keep: Rect) -> Rect {
+    let x0 = subject.x.max(keep.x);
+    let y0 = subject.y.max(keep.y);
+    let x1 = (subject.x + subject.w).min(keep.x + keep.w);
+    let y1 = (subject.y + subject.h).min(keep.y + keep.h);
+    Rect { x: x0 - keep.x, y: y0 - keep.y, w: x1.saturating_sub(x0), h: y1.saturating_sub(y0) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::shot_classifier::{geometry::Rect, Edge, EdgeRefinement, Mask, ShotClassification};
+    use crate::core::preprocessor::{Framing, Trims};
+    use crate::core::shot_classifier::{geometry::Rect, Mask, ShotClassification};
     use image::Rgb;
 
     /// A `w x h` image: uniform background, with `subject` painted a different colour.
@@ -161,55 +253,105 @@ mod tests {
     }
 
     fn run(img: RgbImage, mask: &Mask) -> RgbImage {
-        let prep = Prepared { original: img.clone(), working: img.clone(), model_input: img.clone(), crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() } };
+        let prep = Prepared { original: img.clone(), working: img.clone(), model_input: img.clone(), crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() }, trims: Trims::NONE, framing: Framing::Free, letterbox: None };
         let class = ShotClassification::default();
         apply(&prep, Shot { class: &class, mask, bgc: None })
     }
 
-    fn run_gated(
-        img: RgbImage,
-        mask: &Mask,
-        gated: &[Edge],
-        bgc: Option<Rgb<u8>>,
-    ) -> RgbImage {
-        let prep = Prepared {
-            original: img.clone(),
-            working: img.clone(),
-            model_input: img.clone(),
-            crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() },
-        };
-        let class = ShotClassification {
-            touches_edges: Vec::new(),
-            mask_too_small: false,
-            refinements: gated
-                .iter()
-                .map(|&edge| EdgeRefinement {
-                    edge,
-                    touching: false,
-                    crop_region: Rect { x: 0, y: 0, w: 1, h: 1 },
-                    coverage: None,
-                })
-                .collect(),
-        };
-        apply(&prep, Shot { class: &class, mask, bgc })
+    /// Build the square for `img` straight through `compose`, growing the silhouette by only 2 px so
+    /// that small synthetic scenes keep some background to stretch.
+    fn compose_scene(img: &RgbImage, mask: &Mask, bgc: Option<Rgb<u8>>) -> RgbImage {
+        let class = ShotClassification::default();
+        let subject = Shot { class: &class, mask, bgc }.subject_bbox().expect("a subject");
+        let plan = SquarePlan::new(subject, config::R1_MARGIN, Pins::NONE).expect("a legal square");
+        let silhouette = Silhouette::from_mask(mask, img.width(), img.height(), 2);
+        compose::compose(img, &plan, &silhouette, bgc, 6)
     }
 
     #[test]
     fn silhouette_scales_row_extents_from_working_to_original() {
-        // 10x10 working mask, subject columns 2..=5 on rows 3..=6. Original is 20x20 (2x).
+        // 10x10 working mask, subject columns 2..=5 on rows 3..=6. Original is 20x20 (2x), so the
+        // subject covers original rows 6..=13.
         let mut mask = Mask { width: 10, height: 10, data: vec![0u8; 100] };
         for y in 3..=6 {
             for x in 2..=5 {
                 mask.data[(y * 10 + x) as usize] = 255;
             }
         }
-        let s = Silhouette::from_mask(&mask, 20, 20);
-        // Original row 8 maps to working row 4, inside the band; columns 2..=5 at 2x cover ~4..=11.
-        let (lo, hi) = s.row_x[8].expect("row 8 is inside the subject");
-        assert!(lo <= 5 && hi >= 10, "expected ~4..=11, got {lo}..={hi}");
-        // Rows above and below the subject hold no mask.
-        assert!(s.row_x[0].is_none());
-        assert!(s.row_x[19].is_none());
+        let s = Silhouette::from_mask(&mask, 20, 20, 0);
+        // Original row 8 maps to working row 4; columns 2..=5 at 2x cover ~4..=11, so [4, 12).
+        let (lo, hi) = s.row_x[8];
+        assert!(lo <= 5 && hi >= 11, "expected ~[4, 12), got [{lo}, {hi})");
+        // Rows above and below the subject take the nearest subject row's span.
+        assert_eq!(s.row_x[0], s.row_x[6]);
+        assert_eq!(s.row_x[19], s.row_x[13]);
+        // Columns the same way.
+        assert_eq!(s.col_y[0], s.col_y[4]);
+    }
+
+    /// A slope so steep it never limits anything, for the tests that are not about it.
+    const NO_SLOPE: i64 = 1_000_000;
+
+    #[test]
+    fn an_edge_that_jumps_between_two_lines_is_eased_in_at_the_set_slope() {
+        // Two shoes side by side: line 9 holds only the left one (span 0..=10), line 10 on also the
+        // right one (span 0..=500). Without a slope limit the right edge jumps 490 px in one line.
+        let mut spans: Vec<Option<(i64, i64)>> = vec![Some((0, 10)); 10];
+        spans.extend(vec![Some((0, 500)); 10]);
+        let jumpy = grow_spans(&spans, 0, NO_SLOPE);
+        assert_eq!((jumpy[9].1, jumpy[10].1), (11, 501), "a jump of 490");
+        let eased = grow_spans(&spans, 0, 20);
+        assert!(eased.windows(2).all(|w| (w[0].1 - w[1].1).abs() <= 20), "no edge moves faster than 20 per line");
+        assert!(eased.iter().zip(&jumpy).all(|(e, j)| e.0 <= j.0 && e.1 >= j.1), "the span only ever widens");
+        assert_eq!(eased[19].1, 501, "and the far end is untouched");
+    }
+
+    #[test]
+    fn growing_widens_a_span_by_the_discs_reach() {
+        let g = grow_spans(&[None, None, Some((10, 12)), None, None], 2, NO_SLOPE);
+        // On the line itself the disc reaches 2 each way; one line away floor(sqrt(3)) = 1; two away 0.
+        assert_eq!(g[2], (8, 15));
+        assert_eq!(g[1], (9, 14));
+        assert_eq!(g[3], (9, 14));
+        assert_eq!(g[0], (10, 13));
+        assert_eq!(g[4], (10, 13));
+    }
+
+    #[test]
+    fn lines_the_disc_does_not_reach_take_the_nearest_span() {
+        let g = grow_spans(&[None, Some((5, 6)), None, None, None, None, None, None], 1, NO_SLOPE);
+        assert_eq!(g[1], (4, 8));
+        assert_eq!(g[2], (5, 7));
+        assert_eq!(g[7], g[2], "a far line borrows the nearest grown line");
+        assert_eq!(g[4], g[2]);
+    }
+
+    #[test]
+    fn white_bars_are_centred_with_equal_padding_and_not_aligned_on_the_subject() {
+        // A 300x400 picture with 100 px bars each side of a 100 px wide content box, full height.
+        let img = RgbImage::from_pixel(300, 400, Rgb([255, 255, 255]));
+        let mut prep = Prepared {
+            original: img.clone(),
+            working: img.clone(),
+            model_input: img.clone(),
+            crop: Rect { x: 0, y: 0, w: 300, h: 400 },
+            trims: Trims::NONE,
+            framing: Framing::CentreContent(Rect { x: 100, y: 0, w: 100, h: 400 }),
+            letterbox: None,
+        };
+        // The subject hugs the right of the content: a subject-aligned plan would not be centred.
+        let subject = Rect { x: 150, y: 100, w: 50, h: 300 };
+        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
+        assert_eq!((plan.side, plan.x, plan.y), (400, -50, 0), "400 square, 150 px of padding split 75/75 about the box");
+        // Scaled the same way when the working copy is smaller than the original.
+        prep.working = RgbImage::from_pixel(150, 200, Rgb([255, 255, 255]));
+        prep.framing = Framing::CentreContent(Rect { x: 50, y: 0, w: 50, h: 200 });
+        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
+        assert_eq!((plan.side, plan.x, plan.y), (400, -50, 0));
+        // Without the framing the subject decides, as before.
+        prep.framing = Framing::Free;
+        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
+        assert_ne!((plan.side, plan.x), (400, -50));
     }
 
     #[test]
@@ -240,10 +382,10 @@ mod tests {
     #[test]
     fn a_subject_wider_than_the_frame_is_filled_on_the_narrow_axis() {
         // 200x100 frame, subject nearly filling it: the square is taller than the image, so the
-        // top and bottom bands stretch. Corners come out background — the proof that the
+        // top and bottom overhangs are filled. Corners come out background — the proof that the
         // two-pass order fills them, since they are outside the image on both axes.
         let (img, mask) = scene(200, 100, Rect { x: 40, y: 20, w: 120, h: 60 }, [180, 190, 200], [30, 40, 50]);
-        let out = run(img, &mask);
+        let out = compose_scene(&img, &mask, None);
         assert_eq!(out.dimensions(), (130, 130));
         assert_eq!(*out.get_pixel(2, 2), Rgb([180, 190, 200]), "top-left corner");
         assert_eq!(*out.get_pixel(122, 122), Rgb([180, 190, 200]), "bottom-right corner");
@@ -251,10 +393,9 @@ mod tests {
     }
 
     #[test]
-    fn a_gradient_background_keeps_its_gradient_when_stretched() {
-        // The case a flat fill loses. The ramp runs left-to-right and the stretch is horizontal,
-        // so the left band has to carry its gradient across 44 invented columns rather than
-        // settle at one averaged value.
+    fn a_gradient_background_keeps_its_gradient_next_to_the_product() {
+        // The case a flat fill loses. The ramp runs left-to-right and the fill is horizontal, so the
+        // left overhang must continue the ramp rather than settle at one value.
         let mut img = RgbImage::new(120, 400);
         for y in 0..400 {
             for x in 0..120 {
@@ -269,105 +410,64 @@ mod tests {
                 mask.data[(y * 120 + x) as usize] = 255;
             }
         }
-        let out = run(img, &mask);
+        let out = compose_scene(&img, &mask, None);
         assert_eq!(out.dimensions(), (217, 217), "200 * 1.084 = 216.8");
 
-        // Left band: source columns 0..12 (subject at 20, safety 8) stretched over output
-        // columns 0..61. Both ends pinned, and no reversal in between.
+        // The square starts 49 columns left of the image and 91 rows down. The product band is the
+        // silhouette grown by 2: source columns 18..102, output columns 67.. — an untouched copy.
         let row = out.height() / 2;
-        let band: Vec<u8> = (0..61).map(|x| out.get_pixel(x, row)[0]).collect();
-        assert_eq!(band[0], 0, "outer end is pinned to the image's own border pixel");
-        assert_eq!(band[60], 23, "inner end meets column 11 of the source, value 23");
-        assert!(
-            band.windows(2).all(|w| w[0] <= w[1]),
-            "a stretched gradient must stay monotonic, got {band:?}"
-        );
+        for x in 67..140u32 {
+            assert_eq!(out.get_pixel(x, row), img.get_pixel(x - 49, row + 91), "band altered at {x}");
+        }
+        // The pixel next to the band continues the ramp from source column 17 (value 36).
+        let next_to_band = out.get_pixel(66, row)[0];
+        assert!((30..=40).contains(&next_to_band), "ramp not continued next to the product: {next_to_band}");
+        // And nothing in the left overhang leaves the source's own range, 0..=36.
+        for x in 0..67u32 {
+            let v = out.get_pixel(x, row)[0];
+            assert!(v <= 36, "overhang pixel {x} outside the source range: {v}");
+        }
     }
 
     #[test]
-    fn an_empty_mask_falls_back_instead_of_centring_on_nothing() {
-        let img = RgbImage::from_pixel(200, 100, Rgb([1, 2, 3]));
-        let mask = Mask { width: 200, height: 100, data: vec![0u8; 200 * 100] };
-        let out = run(img, &mask);
-        // R3's answer: whole image on a square canvas at the longest side.
-        assert_eq!(out.dimensions(), (200, 200));
-    }
-
-    #[test]
-    fn a_shadow_sliver_on_a_gated_bottom_does_not_stretch_into_the_overhang() {
-        // 11.jpg in a bottle: a low frame with a product in the middle so the planner's square
-        // overhangs the bottom edge, plus a dark shadow sliver along part of that bottom edge.
-        // The bottom edge is gated. Blind stretching would smear the sliver across the whole
-        // bottom overhang; the new classifier should route those columns to the inpainter.
-        let w = 120u32;
-        let h = 40u32;
-        let mut img = RgbImage::from_pixel(w, h, Rgb([255, 255, 255]));
-        let subject = Rect { x: 30, y: 5, w: 60, h: 20 };
-        let mut mask = Mask { width: w, height: h, data: vec![0u8; (w * h) as usize] };
+    fn a_textured_pillarbox_scene_reframes_instead_of_stretching() {
+        // A white 10px bar on the left, a black one on the right (two bars of one colour would read
+        // as the backdrop and not fire), a pseudo-random textured interior between — so the
+        // preprocessor's letterbox detector fires and R1 must reframe (crop | seam-carve |
+        // white-pad) rather than stretch the textured overhang.
+        let mut img = RgbImage::from_pixel(60, 60, Rgb([255, 255, 255]));
+        for y in 0..60u32 {
+            for x in 10..60u32 {
+                let v = if x >= 50 { 0 } else { ((x * 37 + y * 101) % 256) as u8 };
+                img.put_pixel(x, y, Rgb([v, v, v]));
+            }
+        }
+        // A tall subject in the interior, so a square crop cannot preserve it.
+        let subject = Rect { x: 20, y: 3, w: 12, h: 54 };
+        let mut mask = Mask { width: 60, height: 60, data: vec![0u8; 60 * 60] };
         for y in subject.y..subject.y + subject.h {
             for x in subject.x..subject.x + subject.w {
-                img.put_pixel(x, y, Rgb([200, 20, 20]));
-                mask.data[(y * w + x) as usize] = 255;
+                mask.data[(y * 60 + x) as usize] = 255;
             }
         }
-        // Sliver: four rows at the bottom, columns 50..70. Dark grey, well outside the BGC
-        // tolerance of 18 against white.
-        for y in (h - 4)..h {
-            for x in 50..70 {
-                img.put_pixel(x, y, Rgb([60, 60, 60]));
-            }
-        }
+        let keep = crate::core::preprocessor::optimizer::trim_letterbox(&img).expect("pillarbox fires");
+        let prep = Prepared {
+            original: img.clone(),
+            working: img.clone(),
+            model_input: img.clone(),
+            crop: Rect { x: 0, y: 0, w: 60, h: 60 },
+            trims: Trims::NONE, framing: Framing::Free,
+            letterbox: Some(keep),
+        };
+        let class = ShotClassification::default();
+        let out = apply(&prep, Shot { class: &class, mask: &mask, bgc: None });
 
-        let out = run_gated(img.clone(), &mask, &[Edge::Bottom], Some(Rgb([255, 255, 255])));
-        // Side = 60 * 1.084 = 65.04 → 65.
-        assert_eq!(out.dimensions(), (65, 65));
-
-        // Pick a mid-column inside the sliver's horizontal range: src columns 50..70 map to the
-        // same output columns because plan.x ≈ 27, side = 65, so src col 60 → out col 33.
-        let col_x = 33u32;
-        let out_h = out.height();
-        // Bottom 10 output pixels should not drift anywhere near the sliver's grey (60).
-        let mut smeared = false;
-        for y in (out_h - 10)..out_h {
-            let p = out.get_pixel(col_x, y);
-            if p[0] < 180 {
-                smeared = true;
-                break;
-            }
-        }
-        assert!(
-            !smeared,
-            "shadow sliver smeared into the overhang at x={col_x}, first dark px at y={}",
-            (out_h - 10..out_h)
-                .find(|&y| out.get_pixel(col_x, y)[0] < 180)
-                .unwrap_or(out_h)
-        );
-    }
-
-    #[test]
-    fn a_clean_bottom_edge_still_stretches_when_the_gate_flagged_it() {
-        // Same geometry as the sliver test, no sliver. A gated-but-clean bottom should stretch
-        // identically to the no-gate case — the classifier calls every column "stretchable".
-        let w = 120u32;
-        let h = 40u32;
-        let subject = Rect { x: 30, y: 5, w: 60, h: 20 };
-        let mut img = RgbImage::from_pixel(w, h, Rgb([255, 255, 255]));
-        let mut mask = Mask { width: w, height: h, data: vec![0u8; (w * h) as usize] };
-        for y in subject.y..subject.y + subject.h {
-            for x in subject.x..subject.x + subject.w {
-                img.put_pixel(x, y, Rgb([200, 20, 20]));
-                mask.data[(y * w + x) as usize] = 255;
-            }
-        }
-
-        let out = run_gated(img, &mask, &[Edge::Bottom], Some(Rgb([255, 255, 255])));
-        // Bottom overhang on a pure-white backdrop stays white — a resample of white is white.
-        let out_h = out.height();
-        for y in (out_h - 5)..out_h {
-            let p = out.get_pixel(33, y);
-            assert_eq!(p[0], 255, "clean white bottom should stay white, got {p:?} at y={y}");
-            assert_eq!(p[1], 255);
-            assert_eq!(p[2], 255);
-        }
+        // The route output is exactly the reframe of the trimmed interior — proof it took the Part C
+        // path, not R1's stretch, whichever reframe priority won.
+        let trimmed = image::imageops::crop_imm(&img, keep.x, keep.y, keep.w, keep.h).to_image();
+        let bbox = Shot { class: &class, mask: &mask, bgc: None }.subject_bbox_in(&prep).unwrap();
+        let expected = extend::reframe_to_square(&trimmed, subject_into(bbox, keep));
+        assert_eq!(out, expected, "a textured scene must reframe, not R1-stretch");
+        assert_eq!(out.width(), out.height(), "reframed output is square");
     }
 }

@@ -1,33 +1,81 @@
-//! Imaging core: load → preprocess → classify → dispatch → export.
+//! Imaging core: load → preprocess → classify → frame → dispatch → export.
 
 pub mod config;
 pub mod exporter;
+pub mod framing;
 pub mod preprocessor;
 pub mod processor;
 pub mod runtime;
 pub mod shot_classifier;
 pub mod trace;
 
-use shot_classifier::{Mask, ShotClassification};
-use preprocessor::Prepared;
+use preprocessor::{Framing, Prepared, Trims};
+use shot_classifier::geometry::Rect;
+use shot_classifier::{Instance, Mask, ShotClassification};
 use std::path::Path;
 
 /// Full per-file pipeline.
 pub fn process_file(input: &Path, output: &Path, backup: &Path) -> Result<(), String> {
     let _trace = trace::begin(output);
-    let prep = preprocessor::prepare(input)?;
-    let classified = classify(&prep);
-    // Sample BGC/FGC once per image. We used to only pay for this with the debug marker on;
-    // R1's stretch/inpaint split needs the BGC on every image where a gate flagged an edge, so
-    // the guard widens to also fire when the classifier reports at least one gated edge. The
-    // single sample is still shared by the stage-90 log, the exporter's filename tag, and R1.
-    let gated_edges_present = classified
-        .as_ref()
-        .map(|(c, _)| !c.refinements.is_empty())
-        .unwrap_or(false);
-    let colors = (trace::debug_enabled() || gated_edges_present)
-        .then(|| classified.as_ref().map(|(_, mask)| exporter::colors::sample(&prep.working, mask)))
-        .flatten();
+    let mut prep = preprocessor::prepare(input)?;
+    let mut classified = classify(&prep);
+
+    // Framing: read the two trims against the mask the one model run gave, and see whether what trim 1
+    // cut off is padding or a frame (see `framing`). Bars on one axis are dropped (one edge touched,
+    // smooth content) or centred with padding by R1; a frame is peeled here, and the edge check runs
+    // again on the cropped picture — no second model run.
+    let decision = classified.as_ref().map(|(class, mask)| {
+        let bounds = mask_bounds(mask);
+        let texture = preprocessor::optimizer::highpass_texture(&prep.working, prep.trims.first, bounds);
+        let (decision, why) = framing::decide(
+            prep.working.dimensions(),
+            prep.trims.first,
+            prep.trims.second,
+            class.touches_edges.len(),
+            bounds,
+            texture,
+        );
+        trace::note(|| format!("framing: {why}"));
+        decision
+    });
+    match decision {
+        Some(framing::Decision::Centre(content)) => prep.framing = Framing::CentreContent(content),
+        Some(framing::Decision::Crop(content)) => {
+            // The bars go; R1 frames the content like any picture. The verdict is kept as it was (the
+            // bars never touched the subject, so the edges it touches do not change, and EIX cannot
+            // flip); only the mask moves into the cropped frame.
+            if let Some((class, mask)) = classified.take() {
+                let mask = mask.cropped(content);
+                prep = peel(&prep, content);
+                trace::note(|| format!("bars dropped: the picture is now {}x{}", prep.original.width(), prep.original.height()));
+                classified = Some((class, mask));
+            }
+        }
+        Some(framing::Decision::Peel(first)) => {
+            if let Some((_, mask)) = &classified {
+                // Trim 1 can stop inside a frame the product runs into; go on while it is still frame.
+                let frame = framing::deepen_peel(&prep.working, mask, first, framing::border_colour(&prep.working));
+                trace::note(|| format!("frame peel: trim 1's box {first:?} deepened to {frame:?}"));
+                let instance = Instance {
+                    mask: mask.cropped(frame),
+                    bbox: Rect { x: 0, y: 0, w: frame.w, h: frame.h },
+                    class_id: 0,
+                    confidence: 1.0,
+                };
+                prep = peel(&prep, frame);
+                trace::note(|| {
+                    format!("frame peeled: the picture is now {}x{} (working {}x{})", prep.original.width(), prep.original.height(), prep.working.width(), prep.working.height())
+                });
+                classified = Some(judge(&prep, instance));
+            }
+        }
+        _ => {}
+    }
+
+    // Sample BGC/FGC once per image. R1 holds every pixel it invents to the BGC, so it is needed on
+    // every image that has a verdict. The single sample is shared by the stage-90 log, the
+    // exporter's filename tag, and R1.
+    let colors = classified.as_ref().map(|(_, mask)| exporter::colors::sample(&prep.working, mask));
     let bgc = colors
         .as_ref()
         .and_then(|c| c.bgc.as_deref())
@@ -50,24 +98,53 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path) -> Result<(), St
     exporter::export(&img, output, input, backup, shot)
 }
 
+/// The picture cropped to `frame` (`working` coordinates): both resolutions, so R1 and the edge check
+/// see the picture without the frame. The model's crop and the trims are spent, and the bar detector's
+/// box was in the old coordinates, so they are cleared.
+fn peel(prep: &Prepared, frame: Rect) -> Prepared {
+    let (ww, wh) = prep.working.dimensions();
+    let (ow, oh) = prep.original.dimensions();
+    let (fx, fy) = (ow as f32 / ww.max(1) as f32, oh as f32 / wh.max(1) as f32);
+    let x0 = ((frame.x as f32 * fx).round() as u32).min(ow.saturating_sub(1));
+    let y0 = ((frame.y as f32 * fy).round() as u32).min(oh.saturating_sub(1));
+    let x1 = (((frame.x + frame.w) as f32 * fx).round() as u32).clamp(x0 + 1, ow);
+    let y1 = (((frame.y + frame.h) as f32 * fy).round() as u32).clamp(y0 + 1, oh);
+    let original = image::imageops::crop_imm(&prep.original, x0, y0, x1 - x0, y1 - y0).to_image();
+    let working = image::imageops::crop_imm(&prep.working, frame.x, frame.y, frame.w, frame.h).to_image();
+    let crop = Rect { x: 0, y: 0, w: working.width(), h: working.height() };
+    Prepared {
+        original,
+        working,
+        model_input: image::RgbImage::new(1, 1),
+        crop,
+        trims: Trims::NONE,
+        framing: Framing::Free,
+        letterbox: None,
+    }
+}
+
 /// Run the shot classifier: the model sees the optimiser's crop, the edge checks the true-colour image.
 ///
 /// `None` means no verdict — the model is unavailable, or inference failed on this image. That is
 /// not an error for the batch: `routes::dispatch` sends a no-verdict image down R3, which frames it
 /// safely without claiming to know where the subject is.
 ///
-/// The mask is carried out alongside the verdict: the exporter samples the BGC/FGC debug tags from
-/// it and writes it as `<stem>_segmask.jpg` when `PPRONI_DEBUG_TAGS` is set.
+/// The model runs once, on trim 1's crop. The mask is carried out alongside the verdict: the exporter
+/// samples the BGC/FGC debug tags from it and writes it as `<stem>_segmask.jpg` when
+/// `PPRONI_DEBUG_TAGS` is set.
 fn classify(prep: &Prepared) -> Option<(ShotClassification, Mask)> {
-    use crate::core::shot_classifier::{
-        classify_instance, CroppedModel, RefineParams, RefinementInput, SegmentationModel,
-    };
+    use crate::core::shot_classifier::{CroppedModel, SegmentationModel};
 
     // The model is shown only the optimiser's crop; its mask is put back into the full working frame.
-    let model = CroppedModel::new(model().ok()?, prep.working.dimensions(), prep.crop);
-    let instances = model.segment(&prep.model_input).ok()?;
-    let instance = instances.into_iter().next()?;
+    let found = CroppedModel::new(model().ok()?, prep.working.dimensions(), prep.crop).segment(&prep.model_input);
+    let instance = found.ok()?.into_iter().next()?;
     trace::note(|| format!("mask covers {:.1}% of the frame", trace::coverage_pct(&instance.mask)));
+    Some(judge(prep, instance))
+}
+
+/// The edge verdict for one instance: pass 1 gate, pass 2 refinement. Needs no model.
+fn judge(prep: &Prepared, instance: Instance) -> (ShotClassification, Mask) {
+    use crate::core::shot_classifier::{classify_instance, RefineParams, RefinementInput};
 
     let input = RefinementInput {
         working_image: &prep.working,
@@ -75,14 +152,30 @@ fn classify(prep: &Prepared) -> Option<(ShotClassification, Mask)> {
         instance: &instance,
     };
     let params = RefineParams {
-        band_px: config::REFINE_BAND_PX,
+        band_px: config::GATE_MARGIN_PX,
         safety_px: config::REFINE_SAFETY_PX,
         context_px: config::REFINE_CONTEXT_PX,
         narrow_band_px: config::REFINE_NARROW_BAND_PX,
         graze_ratio_max: config::GRAZE_RATIO_MAX,
     };
     let class = classify_instance(&input, config::GATE_MARGIN_PX, params);
-    Some((class, instance.mask))
+    (class, instance.mask)
+}
+
+/// The tight box around everything the mask marks, or `None` for an empty mask.
+fn mask_bounds(mask: &Mask) -> Option<Rect> {
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    for y in 0..mask.height {
+        for x in 0..mask.width {
+            if mask.get(x, y) {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    (x0 != u32::MAX).then(|| Rect::from_bounds(x0, y0, x1, y1))
 }
 
 /// The one shared model instance.
@@ -115,8 +208,7 @@ fn trace_stage_90(
     route: processor::routes::Route,
     colors: Option<&exporter::colors::ShotColors>,
 ) {
-    use processor::routes::center_and_stretch::compose;
-    use processor::routes::center_and_stretch::plan::{Pins, SquarePlan};
+    use processor::routes::center_and_stretch::plan_square;
     use processor::routes::Route;
     use shot_classifier::shotcode::{eix_bits, NO_VERDICT_EIX};
 
@@ -126,31 +218,12 @@ fn trace_stage_90(
 
     let subject = shot.and_then(|s| s.subject_bbox_in(prep));
     let plan = shot.and_then(|s| {
-        subject.and_then(|subj| {
-            SquarePlan::new(subj, config::R1_MARGIN, Pins::from_edges(&s.class.touches_edges))
-        })
+        subject.and_then(|subj| plan_square(prep, subj, &s.class.touches_edges))
     });
     let gated: Vec<_> = shot
         .map(|s| s.class.refinements.iter().map(|r| r.edge).collect())
         .unwrap_or_default();
     let touching: Vec<_> = shot.map(|s| s.class.touches_edges.clone()).unwrap_or_default();
-    // Per-column stretchable/unstretchable call for the stage-90 strip overlay. Only computed
-    // when R1 will actually run — R2/R3 do not stretch, so the strip would be meaningless there.
-    let strips: Vec<(shot_classifier::Edge, Vec<bool>)> = match route {
-        Route::CenterAndStretch if shot.is_some() => {
-            let scale = (prep.original.width() as f32 / prep.working.width().max(1) as f32)
-                .max(prep.original.height() as f32 / prep.working.height().max(1) as f32)
-                .max(1.0);
-            let probe = (config::R1_STRETCH_PROBE_LEN_WORKING_PX as f32 * scale).round().max(1.0) as u32;
-            let bgc = shot.and_then(|s| s.bgc);
-            gated
-                .iter()
-                .map(|&e| (e, compose::classify_edge(&prep.original, e, bgc, probe)))
-                .collect()
-        }
-        _ => Vec::new(),
-    };
-
     let route_label = match route {
         Route::CenterAndStretch => "[R1 - CenterAndStretch]",
         Route::CropSquare => "[R2 - CropSquare]",
@@ -162,7 +235,7 @@ fn trace_stage_90(
         "{route_label} - bbox (cyan), final canvas (yellow), grey (invented area); red (edge touches) orange (edge gated but cleared)"
     );
     trace::image(trace::stage::R1_PLAN, &header, || {
-        trace::plan_view(&prep.original, subject, plan_tuple, &gated, &touching, &strips)
+        trace::plan_view(&prep.original, subject, plan_tuple, &gated, &touching)
     });
 
     // Line 2: bbox and R1's planned canvas, each shown only if we have it.
@@ -233,3 +306,4 @@ pub fn preflight() -> Result<(), String> {
     model()?;
     Ok(())
 }
+

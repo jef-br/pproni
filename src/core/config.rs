@@ -15,36 +15,20 @@ pub const JPEG_QUALITY: u8 = 95;
 /// Longest side of the working-resolution copy the segmentation model runs on.
 pub const WORKING_SIZE: u32 = 1024;
 
-/// Pass-1 gate: an edge is worth refining when foreground appears within this many pixels of it.
+/// Pass 1 and 2 band with gate: an edge is worth refining when foreground appears within this many pixels of it and is the distance for how far the refinement looks.
 pub const GATE_MARGIN_PX: u32 = 20;
 
-/// Pass-2 band width: how far in from the border the refinement looks. Also the *wide* band of
-/// the graze test below.
-pub const REFINE_BAND_PX: u32 = 20;
-
-/// Pass-2 graze test, narrow band: compared against `REFINE_BAND_PX` to tell a subject truncated
-/// by the frame from one that merely grazes it.
-///
-/// Keep it well below the wide band — the test's separation collapses as the two converge. Across
-/// 46 masks the gap between the worst graze and the best bleed-off was 0.31 at 5px/20px, but only
-/// 0.18 at 10px/20px. Not narrower than ~5 either: the mask over-reaches the border by about one
-/// antialiased row, and a 2px band gives that one bad row half the vote.
+/// Pass-2 graze test, narrow band.
 pub const REFINE_NARROW_BAND_PX: u32 = 5;
 
-/// Pass-2 graze test threshold. Below this ratio of narrow-band to wide-band coverage the contact
-/// is a graze — the silhouette runs *along* the border instead of off it — and the edge reports as
-/// not touching, so the image routes R1 rather than R2.
-///
-/// Sits in an empty gap: the two hand-labelled grazes measure 0.611 and 0.614, and all 22
-/// bleed-offs measure 0.926 or above. Size cannot make this call — a graze at 17.0% of the edge
-/// and a real bleed-off at 17.7% differ only in shape.
+/// Pass-2 graze test threshold.
+/// The graze test compares 2 bands:
+/// A/B = <band sized to 'GATE_MARGIN_PX'> / <band sized to 'REFINE_NARROW_BAND_PX'>
+/// A/B > GRAZE_RATIO_MAX → R1 → bands have the same productwidth so the direction is deemed to intersect the image edge, touching.
+/// A/B <= GRAZE_RATIO_MAX → R2 → indicates a changing direction, is interpreted as the product grazing the image edge, not touching.
 pub const GRAZE_RATIO_MAX: f32 = 0.80;
 
-/// Below this fraction of the frame, a mask is not a subject — see `shotcode::mask_too_small`.
-///
-/// Measured over the 37-image set: the two masks that describe nothing cover 0.0% and 4.4% of the
-/// frame, and the smallest mask that describes a real product covers 13.5%. Nothing lands between
-/// them, so the exact value barely matters.
+/// Below this fraction of the frame, a mask is not a subject. See `shotcode::mask_too_small`. JB-calibrated.
 pub const MASK_MIN_COVERAGE: f64 = 0.05;
 
 // ---- Optimiser trim ---------------------------------------------------------------------------
@@ -79,6 +63,29 @@ pub const TRIM_CLOSE_K: u32 = 2;
 pub const TRIM_MARGIN_MIN_PX: u32 = 10;
 pub const TRIM_MARGIN_SHARE: f64 = 0.10;
 
+/// Trim 2, the control (`optimizer::recheck_box`): the trim is run a second time on trim 1's tight
+/// box. If any side of the second box differs from the first by MORE than this many pixels, the box
+/// was not stable — a mono-colour frame (a passe-partout) sat round the real picture — and the
+/// second box replaces the first. Starting value, to be calibrated.
+pub const TRIM_RECHECK_TOLERANCE_PX: u32 = 2;
+
+/// How far, in working pixels, the segmask's box may sit from a trim box and still count as "equal"
+/// to it (`core::framing`): the mask's own edge is only good to a few pixels. Starting value.
+pub const TRIM_SEGMASK_TOLERANCE_PX: u32 = 8;
+
+/// `core::framing`: trim 1 only counts as padding on ONE axis (white bars) when the other axis loses
+/// no more than this share of its length, summed over both its sides. Starting value.
+pub const FRAMING_OTHER_AXIS_SLACK: f32 = 0.02;
+
+/// `core::framing`: bars are padding only when the two cut sides are of similar width: the thinner
+/// is at least this share of the thicker. Padding is added evenly (measured: 0.5-1.0); backdrop round a
+/// product that sits off-centre is not (image 19: 0.05). Starting value.
+pub const FRAMING_BARS_SYMMETRY: f32 = 0.3;
+
+/// `core::framing`: trim 1's box counts as square when its sides differ by no more than this share
+/// of the longer one. Starting value.
+pub const FRAMING_SQUARE_TOLERANCE: f32 = 0.02;
+
 /// Pass-2 safety margin excluded around the mask when sampling background colour.
 pub const REFINE_SAFETY_PX: u32 = 10;
 
@@ -100,76 +107,65 @@ pub const MAX_SIZE: u32 = 2000;
 
 /// Margin R1 leaves around the subject, as a fraction of the square's side.
 ///
-/// The square is `max(bbox_w, bbox_h) * (1 + R1_MARGIN)`, so the margin is shared between the two
-/// sides of the subject's longest axis — roughly 4.2% of the side on each.
+/// The margin for an axis with both sides free: `extent * (1 + R1_MARGIN)`, shared between the two
+/// sides, 4.2% on each. An axis with a single free side (the other is pinned to the frame) gets 4.2%,
+/// not the whole 8.4%; an axis pinned on both sides gets none. The square is the larger of the two
+/// axes' needs (`plan::SquarePlan::new`).
 pub const R1_MARGIN: f32 = 2.0*0.042;
 
-/// R1 safety inset, part one: how far the *working-resolution* mask boundary can be wrong, in
-/// working pixels. Scaled up to full resolution before use, because that is where the error lands.
-pub const R1_SAFETY_MASK_PX: f32 = 2.0;
+/// The stretch curve. Along one line, `x` runs from 0 (the pixel next to the product) to 1 (the
+/// image border), and the local stretch there is at most `f(x) = x^R1_STRETCH_CURVE_POWER`:
+/// 0% next to the product, +100% at the border (one pixel becomes two). With `e * 1.68` that is
+/// `sqrt(x^(2·e·1.68))`: f(0.5) ≈ 0.042, f(1) = 1. All of a line's stretch together is about
+/// `1 / (power + 1)` ≈ 18% of its source length; whatever overhang is left is invented.
+pub const R1_STRETCH_CURVE_POWER: f32 = std::f32::consts::E * 1.68;
 
-/// R1 safety inset, part two: how soft the boundary is in the full-resolution image itself —
-/// antialiasing, JPEG ringing, a hairline of contact shadow. Already in full-resolution pixels, so
-/// it is not scaled.
-pub const R1_SAFETY_EDGE_PX: f32 = 2.0;
-
-/// Along a gated edge, a column (or row) is **stretchable** when every one of its probed inward
-/// pixels sits within this L∞ per-channel distance of the background colour. A clean JPEG backdrop
-/// easily fits in 18 of 255 per channel; a shadow or shoe-sliver crossing into the band does not.
-pub const R1_STRETCH_BGC_TOLERANCE: u8 = 18;
-
-/// How many *working*-resolution pixels inward from a gated edge are probed when deciding whether
-/// a column is close to BGC. Pinned to the gate band width — the same strip the gate flagged is
-/// the strip we re-interrogate per column.
-pub const R1_STRETCH_PROBE_LEN_WORKING_PX: u32 = GATE_MARGIN_PX;
-
-/// Fallback when `colors::sample` reports no global BGC: resample this many colours along a short
-/// strip just inside the gated band, drop outliers (MAD rule), and if the kept set is tight enough
-/// (see `R1_LOCAL_BGC_SPAN_MAX`) treat the median as a per-edge BGC. 16 mirrors the preprocessor's
-/// border-sample budget so the two statistics agree.
-pub const R1_LOCAL_BGC_SAMPLES: u32 = 16;
-
-/// Maximum per-channel span of the kept local samples that still counts as a usable per-edge BGC.
-/// A wider span means the edge isn't flat, so no local BGC can be trusted and the whole side is
-/// unstretchable.
-pub const R1_LOCAL_BGC_SPAN_MAX: u8 = 24;
-
-/// Standard deviation of the per-channel noise added to inpainted pixels, so a lerp'd fill doesn't
-/// read as a dead-flat seam against JPEG-noisy stretched neighbours.
+/// Standard deviation of the per-channel noise added to a flat BGC/white fill, so a line with no
+/// background left to stretch does not read as a dead-flat seam against its JPEG-noisy neighbours.
 pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
 
 // ---- R1 · mask-aware fill (plan Part A) -------------------------------------------------------
 //
-// These drive the segmask-aware stretch→blend→inpaint fill. All three are PROVISIONAL defaults:
-// the plan calls for tuning them in `/pair` against the reference stems, so treat the values below
-// as a safe starting point, not a settled decision.
+// These drive the segmask-aware stretch-then-invent fill. They are working values: the user allowed
+// them to be tuned (2026-10-21) when an image shows a problem, and none does now.
 
-// <jbpair goal="Part B tuning: these provisional fill + per-edge-detector constants (clearance / feather / inpaint-radius, edge-flat span, texture threshold) plus the acceptance ΔE2000 threshold are starting values only; set the final numbers on the real stems in /pair">
-/// Plan name `FILL_SOURCE_CLEARANCE_PX`. How far outward (in *working*-resolution pixels) the
-/// silhouette is dilated before a pixel may be used as a stretch *source*, so the stretch never
-/// samples a cuff/edge pixel that merely sits within BGC tolerance (the 10/11 grey-streak case).
-/// Scaled to full resolution at use, like `R1_STRETCH_PROBE_LEN_WORKING_PX`.
-pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = 4;
+/// Plan name `FILL_SOURCE_CLEARANCE_PX`; the one distance between the product and the background
+/// the fill may use. The silhouette is grown outward by this many *working*-resolution pixels, in
+/// every direction. Inside the grown shape is the product band, copied untouched; the stretch
+/// source is only what lies outside it, so the stretch never samples a cuff, edge or tiny shadow
+/// hugging the product (the 10/11 grey-streak case). Scaled to full resolution at use.
+/// It replaces the old `R1_SAFETY_*` and this constant, which did the same job twice.
+pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
 
-/// Plan name `FILL_FEATHER_PX`. Width, in full-resolution pixels, of the feather blend across a
-/// fill seam. Feather is the plan's default seam treatment; heavier escalation (RANSAC alignment)
-/// is deferred until a feather is shown to fail on a real stem.
-pub const R1_FILL_FEATHER_PX: u32 = 8;
+/// How fast the product band's edge may move from one line to the next, in pixels per line. The band
+/// of a line is the silhouette's span on that line, so where a second object starts a few lines after
+/// the first (two shoes side by side) the edge would jump by hundreds of pixels between two lines and
+/// the stretch beside it would change completely in one line: a visible horizontal step. The band is
+/// widened only (never narrowed, so it always covers the product) until no edge moves faster than
+/// this. 1 is a 45° slope.
+pub const R1_BAND_SLOPE_PX_PER_LINE: u32 = 1;
 
-/// Plan name `FILL_INPAINT_RADIUS_PX`. How far (full-resolution pixels) the area-4 inpaint reaches
-/// for clean near-neighbour background when the stretch cannot cover a pixel.
+/// Plan name `FILL_INPAINT_RADIUS_PX`. Radius, in full-resolution pixels, of the circle around an
+/// invented pixel inside which existing background is read to judge its colour (the local
+/// boxplot), and the number of neighbouring lines whose stretch is averaged so adjacent lines move
+/// together.
 pub const R1_FILL_INPAINT_RADIUS_PX: u32 = 24;
 
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
 //
-// A preprocessor-stage primitive, upstream of the mask. PROVISIONAL defaults — tune in `/pair`.
+// A preprocessor-stage primitive, upstream of the mask. Working values, tuned only when an image shows a problem.
 
 /// Plan name `T_edge_flat`. Max per-channel span (0..255) across one edge's kept border samples
 /// for that edge to count as `flat`.
-pub const T_EDGE_FLAT: u16 = 24;
+pub const T_EDGE_FLAT: u16 = 12;
 
 /// Plan name `T_texture_highpass`. Mean high-pass response (0..255) outside the subject proxy above
 /// which the trimmed background reads as *textured* (a Part C scene) rather than *double-flat* (a
 /// frame — the deferred Part D signal).
-pub const T_TEXTURE_HIGHPASS: f32 = 6.0;
-// </jbpair>
+pub const T_TEXTURE_HIGHPASS: f32 = 12.5;
+
+/// Seam-carve perceptual quality gate (plan Part C, priority 2). The max mean per-pixel energy
+/// (forward-difference luma gradient `|dL/dx| + |dL/dy|`, 0..~510) of the seams a round inserts.
+/// Above it there is no low-energy corridor to grow through, so the carve would visibly warp and
+/// `extend::seam_carve_to_square` rejects — the chain falls through to white-pad.
+pub const R1_SEAM_CARVE_MAX_SEAM_ENERGY: f32 = 24.0;

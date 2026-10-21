@@ -2,10 +2,11 @@
 //!
 //! Pure geometry, no pixels. Two rules, one per axis:
 //!
-//! * **Size.** An axis with at least one free side needs `extent * (1 + margin)`. An axis blocked
-//!   on both sides needs exactly `extent` — the subject runs off the frame at both ends, so there
-//!   is no gap to leave and nothing to leave it with. The square's side is the larger of the two
-//!   needs, so the tighter axis decides.
+//! * **Size.** Every free side of an axis takes half the margin (4.2% of the subject's extent): an
+//!   axis with two free sides needs `extent * (1 + margin)`, one with a single free side
+//!   `extent * (1 + margin / 2)`. An axis blocked on both sides needs exactly `extent` — the
+//!   subject runs off the frame at both ends, so there is no gap to leave and nothing to leave it
+//!   with. The square's side is the larger of the two needs, so the tighter axis decides.
 //! * **Placement.** The slack on each axis goes to that axis's free sides: split between them when
 //!   both are free, all of it to the one that is free otherwise. A blocked side never moves —
 //!   the subject continues past it, and background invented there would be background painted over
@@ -74,12 +75,14 @@ impl SquarePlan {
     /// splitting the difference anyway would stretch the product. R1 has no answer, so it says so
     /// and the caller frames the image safely instead.
     pub fn new(subject: Rect, margin: f32, pins: Pins) -> Option<SquarePlan> {
-        let need = |extent: u32, blocked_both: bool| {
-            let m = if blocked_both { 0.0 } else { margin as f64 };
-            extent as f64 * (1.0 + m)
+        // `margin` is the share for a subject with both sides of an axis free; each free side takes
+        // half of it, so one free side gets 4.2% and two get 8.4%.
+        let need = |extent: u32, free_sides: u32| {
+            extent as f64 * (1.0 + margin as f64 * free_sides as f64 / 2.0)
         };
-        let side = need(subject.h, pins.top && pins.bottom)
-            .max(need(subject.w, pins.left && pins.right))
+        let free = |lo: bool, hi: bool| (!lo) as u32 + (!hi) as u32;
+        let side = need(subject.h, free(pins.top, pins.bottom))
+            .max(need(subject.w, free(pins.left, pins.right)))
             .round()
             .max(1.0) as u32;
 
@@ -187,23 +190,23 @@ mod tests {
     }
 
     #[test]
-    fn one_blocked_side_keeps_the_margin_and_moves_all_of_it_to_the_free_side() {
+    fn one_blocked_side_gives_the_free_side_its_own_margin_of_4_2_percent() {
         // 28.jpg: 667x1000 frame, mask 474x987 flush against the top.
         let p = plan(rect(106, 0, 474, 987), Pins { top: true, ..Pins::NONE });
-        assert_eq!(p.side, 1070, "987 * 1.084 — a blocked side does not cost the margin");
+        assert_eq!(p.side, 1028, "987 * 1.042 — a single free side gets 4.2%, not the two-sided 8.4%");
         assert_eq!(p.y, 0, "the blocked top does not move");
 
-        // All 83px of slack lands under the feet. 13 of them are real floor already in frame;
-        // the other 70 are new canvas the fill has to cover.
+        // All 41px of slack lands under the feet. 13 of them are real floor already in frame;
+        // the other 28 are new canvas the fill has to cover.
         let over = p.overhang(667, 1000);
         assert_eq!(over.top, 0, "nothing is ever invented above a subject that continues off-frame");
-        assert_eq!(over.bottom, 70);
+        assert_eq!(over.bottom, 28);
     }
 
     #[test]
     fn an_axis_blocked_at_both_ends_gets_no_margin() {
         // EIX 1010 on a 640x840 frame: the subject runs off the top and the bottom, so the
-        // vertical axis needs 840 flat rather than 840 * 1.084, and the square is 840.
+        // vertical axis needs 840 flat rather than 840 * 1.042 or 840 * 1.084, and the square is 840.
         let p = plan(rect(60, 0, 520, 840), Pins { top: true, bottom: true, ..Pins::NONE });
         assert_eq!(p.side, 840);
         assert_eq!(p.y, 0);

@@ -143,6 +143,7 @@ pub fn dispatch(prep: &Prepared, shot: Option<Shot<'_>>) -> RgbImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::preprocessor::{Framing, Trims};
 
     fn verdict(touches: &[Edge]) -> ShotClassification {
         ShotClassification { touches_edges: touches.to_vec(), mask_too_small: false, refinements: Vec::new() }
@@ -259,6 +260,8 @@ mod tests {
             working: RgbImage::new(100, 100),
             model_input: RgbImage::new(100, 100),
             crop: Rect { x: 0, y: 0, w: 100, h: 100 },
+            trims: Trims::NONE, framing: Framing::Free,
+            letterbox: None,
         };
 
         let got = Shot { class: &class, mask: &mask, bgc: None }

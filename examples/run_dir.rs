@@ -144,7 +144,6 @@ fn main() {
             }
         };
 
-        pproni::core::trace::image(pproni::core::trace::stage::WORKING, "image as run_dir feeds it (no EXIF or colour handling)", || image.clone());
         let instances = match model.segment(&image) {
             Ok(instances) => instances,
             Err(e) => {

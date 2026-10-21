@@ -156,13 +156,13 @@ what makes R2 a route rather than a branch.
 The mask measures 474×986 flush against the top edge.
 
 ```
-vertical need   = 986 × 1.084 = 1069    # bottom is free, so the axis takes the margin (8.4% total)
+vertical need   = 986 × 1.042 = 1027    # one free side (the bottom): it gets 4.2%, not the two-sided 8.4%
 horizontal need = 474 × 1.084 =  514
-side            = 1069
+side            = 1027
 ```
 
-Top pinned at y=0, so all 83px of vertical slack lands under the feet: 14px of real floor already
-in frame plus 69px of new canvas, stretched from the band below her feet. Horizontally the square
+Top pinned at y=0, so all 41px of vertical slack lands under the feet: 14px of real floor already
+in frame plus 27px of new canvas, stretched from the band below her feet. Horizontally the square
 is centred on the mask and overhangs both sides, filled from the studio paper. The cut-off head is
 reproduced exactly — never stretched, never cropped.
 
@@ -290,7 +290,7 @@ fill     left band ~400px stretches ~1.26x , right band ~800px stretches ~1.37x
   verdict.
 - **"No verdict" is a first-class outcome**, distinct from "touches no edge". It routes to R3.
 - Working size ≤1024; boundaries always confirmed at full resolution.
-- R1 is bbox-anchored: square = longest mask side + 8.4% (4.2% per side, `R1_MARGIN = 2.0*0.042`), bled edges pinned, background stretched to fill. No saliency, no clipping of the subject, and the 42% cap suspended.
+- R1 is bbox-anchored: square = longest mask side + 4.2% per free side (8.4% when both sides of the axis are free, 4.2% when one is pinned, `R1_MARGIN = 2.0*0.042`), bled edges pinned, background stretched to fill. No saliency, no clipping of the subject, and the 42% cap suspended.
 - CoG/MSR (§6) is R2's machinery now — the full bleed is the only case with no background to anchor against.
 - Three routes, one bleed rule: pin the bled edges, margin the free ones. Rows 0-3 of the old edge table are that rule seen from four angles and all live in R1; only the full bleed is left to R2.
 - Output 1:1 [800,2000], JPEG q90–95 4:4:4 sRGB. The envelope is enforced in the exporter — which

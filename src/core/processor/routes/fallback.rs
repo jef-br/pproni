@@ -30,11 +30,12 @@ pub fn apply(prep: &Prepared) -> RgbImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::preprocessor::{Framing, Trims};
     use crate::core::shot_classifier::geometry::Rect;
 
     fn prepared(w: u32, h: u32) -> Prepared {
         let img = RgbImage::from_pixel(w, h, Rgb([10, 20, 30]));
-        Prepared { original: img.clone(), working: img.clone(), model_input: img.clone(), crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() } }
+        Prepared { original: img.clone(), working: img.clone(), model_input: img.clone(), crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() }, trims: Trims::NONE, framing: Framing::Free, letterbox: None }
     }
 
     #[test]

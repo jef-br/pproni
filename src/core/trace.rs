@@ -18,6 +18,7 @@
 //! picture exists, passing a closure that builds it. The closure only runs while tracing, so
 //! building an overlay costs nothing in a normal run.
 
+use super::preprocessor::optimizer::EdgeKind;
 use super::shot_classifier::geometry::Rect;
 use super::shot_classifier::{Edge, Mask};
 use image::{Rgb, RgbImage};
@@ -26,21 +27,32 @@ use std::sync::OnceLock;
 
 /// Stage numbers. A group takes a block of ten so a stage can be added without renumbering.
 pub mod stage {
-    /// Decoded, EXIF-rotated, alpha flattened onto white. Full resolution.
-    pub const ORIGINAL: u8 = 1;
-    /// The working-resolution copy the model runs on. Kept for `examples/run_dir.rs`; the
-    /// pipeline no longer traces it.
-    pub const WORKING: u8 = 3;
-    /// The primary BiRefNet model: four stages — the model input (`PRIMARY + 0`), the ImageNet-
-    /// normalised input (`+1`), the raw logits (`+2`), and the mask at working resolution (`+5`).
-    /// Numbers kept so earlier offsets stay recognisable in the log.
-    pub const PRIMARY: u8 = 10;
+    pub const ORIGINAL: u8 = 1; // Preprocessing stage: image 01, exif+alpha+flat+color-profile
+    pub const LETTERBOX: u8 = 2; // Preprocessing stage: the flat-bar check on the original
+                                 // - bar along each edge: green = backdrop, orange = flat in
+                                 //   another colour, magenta = varied
+                                 // - dimmed = bars the check would trim
+                                 // - cyan = product proxy; the bright rest is where texture is measured
+                                 // Emitted for every image
+    pub const TRIM: u8 = 3; // Preprocessing stage: the two trims on the colour-balanced working copy
+                            // - cyan = trim 1's tight box
+                            // - yellow = trim 2's tight box (drawn only when it replaced trim 1)
+                            // - green = the backed-off crop BiRefNet is shown
+                            // Emitted for every image
+    pub const PRIMARY: u8 = 10; // Shot-Classifier stage:
+                                // - 10 = model input
+                                // - +1 = ImageNet-normalised input
+                                // - +2 = Raw logits; L=0→128, L<0 → 0-127, L>0 → 129-255
+                                // - +5 = segmask at working resolution
+    pub const R1_PLAN: u8 = 90; // Plan view on the original
+                                // - subject box (cyan)
+                                // - R1's planned square (yellow)
+                                // - grey = invented area
+                                // - Semi-transparent edge bars for the gate/verdict
+                                //    - red = touches
+                                //    - orange = gated but cleared
+                                // Emitted for every image; subject and square are optional, a missing verdict or an impossible plan still produce a useful picture
 
-    /// Plan view on the original: subject box (cyan), R1's planned square (yellow), grey =
-    /// invented area, plus semi-transparent edge bars for the gate/verdict (red = touches,
-    /// orange = gated but cleared). Emitted for every image; both the subject and the square
-    /// are optional, so a missing verdict or an impossible plan still produces a useful picture.
-    pub const R1_PLAN: u8 = 90;
 }
 
 /// Labels for the stages of one BiRefNet run, as offsets from [`stage::PRIMARY`]. Indices 3, 4
@@ -261,6 +273,56 @@ pub fn outline(img: &mut RgbImage, x: i64, y: i64, w: u32, h: u32, colour: [u8; 
     }
 }
 
+/// The letterbox check on the original. A bar along each edge, `[T, R, B, L]`: green = plain
+/// backdrop, orange = flat in another colour, magenta = varied. `bars` (the part the check would
+/// keep) leaves the trimmed bars dimmed. `proxy` is tinted cyan and outlined: texture is measured on
+/// everything bright outside it.
+pub fn letterbox_view(original: &RgbImage, kinds: [EdgeKind; 4], bars: Option<Rect>, proxy: Option<Rect>) -> RgbImage {
+    let mut img = original.clone();
+    let (w, h) = (img.width(), img.height());
+    if let Some(k) = bars {
+        for y in 0..h {
+            for x in 0..w {
+                if x < k.x || x >= k.x + k.w || y < k.y || y >= k.y + k.h {
+                    let Rgb([r, g, b]) = *img.get_pixel(x, y);
+                    img.put_pixel(x, y, Rgb([r / 4, g / 4, b / 4]));
+                }
+            }
+        }
+    }
+    let thick = ((w.max(h) / 400).max(2)) as u32;
+    if let Some(p) = proxy {
+        for y in p.y..(p.y + p.h).min(h) {
+            for x in p.x..(p.x + p.w).min(w) {
+                let Rgb([r, g, b]) = *img.get_pixel(x, y);
+                img.put_pixel(x, y, Rgb([r / 2, g / 2 + 127, b / 2 + 127]));
+            }
+        }
+        outline(&mut img, p.x as i64, p.y as i64, p.w, p.h, [0, 255, 255], thick);
+    }
+    let bar = (w.max(h) / 100).max(4);
+    for (i, kind) in kinds.iter().enumerate() {
+        let colour = match kind {
+            EdgeKind::Backdrop => [0, 200, 0],
+            EdgeKind::FlatOther => [255, 165, 0],
+            EdgeKind::Varied => [255, 0, 255],
+        };
+        // Top, Right, Bottom, Left.
+        let (x, y, bw, bh) = match i {
+            0 => (0, 0, w, bar),
+            1 => (w.saturating_sub(bar), 0, bar, h),
+            2 => (0, h.saturating_sub(bar), w, bar),
+            _ => (0, 0, bar, h),
+        };
+        for py in y..(y + bh).min(h) {
+            for px in x..(x + bw).min(w) {
+                img.put_pixel(px, py, Rgb(colour));
+            }
+        }
+    }
+    img
+}
+
 /// The pass-1 gate: the mask tinted, and each edge's band outlined — red if the gate found
 /// foreground in it (so pass 2 runs), green if not.
 pub fn gate_view(working: &RgbImage, mask: &Mask, margin_px: u32, near: &[Edge]) -> RgbImage {
@@ -308,16 +370,13 @@ pub fn verdict_view(working: &RgbImage, mask: &Mask, near: &[Edge], touching: &[
 /// to invent by stretching. Both are optional: a missing subject skips the cyan outline, a
 /// missing plan skips the yellow square and the grey padding. Semi-transparent red/orange bars
 /// along each gated edge sit under the outlines (red = subject touches, orange = gate flagged
-/// but refinement cleared). `strips` adds a one-pixel green/magenta strip along each gated edge
-/// showing R1's per-column stretch/inpaint call — green where the column will resample, magenta
-/// where it will fall into the inpainter.
+/// but refinement cleared).
 pub fn plan_view(
     original: &RgbImage,
     subject: Option<Rect>,
     plan: Option<(i64, i64, u32)>,
     gated: &[Edge],
     touching: &[Edge],
-    strips: &[(Edge, Vec<bool>)],
 ) -> RgbImage {
     let (w, h) = (original.width() as i64, original.height() as i64);
     let (pad_l, pad_t, pad_r, pad_b) = match plan {
@@ -340,7 +399,6 @@ pub fn plan_view(
     let thick = ((w.max(h) / 400).max(2)) as u32;
     // Semi-transparent edge bars drawn first so the subject/square outlines sit above them.
     overlay_edge_bars(&mut canvas, original.width(), original.height(), pad_l as u32, pad_t as u32, gated, touching);
-    overlay_stretch_strips(&mut canvas, original.width(), original.height(), pad_l as u32, pad_t as u32, strips);
     if let Some(s) = subject {
         outline(&mut canvas, pad_l + s.x as i64, pad_t + s.y as i64, s.w, s.h, [0, 255, 255], thick);
     }
@@ -348,35 +406,6 @@ pub fn plan_view(
         outline(&mut canvas, pad_l + sq_x, pad_t + sq_y, side, side, [255, 255, 0], thick);
     }
     canvas
-}
-
-/// One-pixel strip per gated edge: green where R1's classifier judges the column stretchable,
-/// magenta where it does not. Drawn one pixel inward from the edge so the orange bar underneath
-/// stays visible — the strip is the per-column call *inside* that band.
-fn overlay_stretch_strips(
-    canvas: &mut RgbImage,
-    w: u32,
-    h: u32,
-    pad_x: u32,
-    pad_y: u32,
-    strips: &[(Edge, Vec<bool>)],
-) {
-    const GREEN: [u8; 3] = [0, 220, 0];
-    const MAGENTA: [u8; 3] = [255, 0, 255];
-    for (edge, calls) in strips {
-        for (i, &stretchable) in calls.iter().enumerate() {
-            let colour = if stretchable { GREEN } else { MAGENTA };
-            let (x, y) = match edge {
-                Edge::Top => (i as u32, 1u32),
-                Edge::Bottom => (i as u32, h.saturating_sub(2)),
-                Edge::Left => (1u32, i as u32),
-                Edge::Right => (w.saturating_sub(2), i as u32),
-            };
-            if x < w && y < h {
-                canvas.put_pixel(pad_x + x, pad_y + y, Rgb(colour));
-            }
-        }
-    }
 }
 
 /// Blends a bar colour at 50% alpha along each gated edge of the original-image region on

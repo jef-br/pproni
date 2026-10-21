@@ -6,8 +6,12 @@
 //!    The 16 border pixels (`TRIM_SAMPLES_PER_EDGE` per edge) give the backdrop colour range: per
 //!    channel, the lowest and highest sample. A pixel inside the range on all three channels is
 //!    backdrop. Backdrop gaps are closed (`TRIM_CLOSE_K`), the tightest box around what is left is the
-//!    product. That box is squared to its largest side and grown by a margin (`TRIM_MARGIN_MIN_PX`,
-//!    `TRIM_MARGIN_SHARE`), and the crop is that square, slid to stay inside the frame.
+//!    product (trim 1). That box is squared to its largest side and grown by a margin
+//!    (`TRIM_MARGIN_MIN_PX`, `TRIM_MARGIN_SHARE`), and the crop is that square, slid to stay inside the
+//!    frame. A second run of the same trim on the box (trim 2, [`recheck_box`]) is the control: if
+//!    it moves any side by more than `TRIM_RECHECK_TOLERANCE_PX`, a mono-colour frame (a
+//!    passe-partout) may surround the picture. The model is only ever shown trim 1's crop, once;
+//!    both boxes are handed to `core::framing`, which reads them against the model's mask.
 //!    A frame with no product left is an error: the image is not processed.
 //!
 //! # Colour balance
@@ -31,7 +35,7 @@
 
 use super::super::config::{
     T_EDGE_FLAT, T_TEXTURE_HIGHPASS, TRIM_CLOSE_K, TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE,
-    TRIM_MIN_KEEP, TRIM_OUTLIER_FLOOR, TRIM_OUTLIER_K, TRIM_SAMPLES_PER_EDGE,
+    TRIM_MIN_KEEP, TRIM_OUTLIER_FLOOR, TRIM_OUTLIER_K, TRIM_RECHECK_TOLERANCE_PX, TRIM_SAMPLES_PER_EDGE,
 };
 use super::super::shot_classifier::geometry::Rect;
 use image::{Rgb, RgbImage};
@@ -160,20 +164,86 @@ fn build_table(lo: u8, hi: u8, gamma: f64) -> [u8; 256] {
     table
 }
 
-/// Prepare `img` for the segmentation model: colour balance, then trim.
-///
-/// Returns the cropped image BiRefNet will see and where that crop sits in `img` (so the mask it
-/// produces can be put back). `Err` when nothing but backdrop is left: there is no product to find, and
-/// the image is not processed.
+/// What [`optimize_both`] finds.
+pub struct Optimised {
+    /// The image BiRefNet is shown: trim 1's backed-off crop, colour-balanced.
+    pub model_input: RgbImage,
+    /// Where `model_input` was cut from, in `img` coordinates.
+    pub crop: Rect,
+    /// Trim 1's tight box, in `img` coordinates.
+    pub first: Rect,
+    /// Trim 2's tight box, when trim 2 moved it. Information only: the model is never shown it.
+    pub second: Option<Rect>,
+}
+
+/// Prepare `img` for the segmentation model: colour balance, then trim 1's crop only.
 pub fn optimize(img: &RgbImage) -> Result<(RgbImage, Rect), String> {
+    let both = optimize_both(img)?;
+    Ok((both.model_input, both.crop))
+}
+
+/// Prepare `img` for the segmentation model: colour balance, then two trims.
+///
+/// 1. **Trim 1**, the real one: the tight box around the product ([`product_box`]).
+/// 2. **Trim 2**, the control ([`recheck_box`]): the same trim run again on trim 1's box. A box that
+///    was right does not move; one that moves by more than `TRIM_RECHECK_TOLERANCE_PX` on any side
+///    may have had a mono-colour frame (a passe-partout) round the real picture.
+///
+/// The model is shown trim 1's box, backed off ([`square_crop`]) so it sees the product with room to
+/// breathe, and it runs once: its mask is the one reliable fact about the picture. Both boxes are
+/// handed on so `core::framing` can read them against that mask. `Err` when nothing but backdrop is
+/// left: there is no product to find, and the image is not processed.
+pub fn optimize_both(img: &RgbImage) -> Result<Optimised, String> {
     let balanced = colour_balance(img);
     let balanced = balanced.as_ref().unwrap_or(img);
 
-    let product = product_box(balanced).ok_or("nothing but backdrop: no product to find")?;
-    let crop = square_crop(product, balanced.width(), balanced.height());
-    let mut cropped = image::imageops::crop_imm(balanced, crop.x, crop.y, crop.w, crop.h).to_image();
-    counter_balance_for_birefnet(&mut cropped);
-    Ok((cropped, crop))
+    let first = product_box(balanced).ok_or("nothing but backdrop: no product to find")?;
+    let second = recheck_box(balanced, first);
+    let crop = square_crop(first, balanced.width(), balanced.height());
+    let mut model_input = image::imageops::crop_imm(balanced, crop.x, crop.y, crop.w, crop.h).to_image();
+    counter_balance_for_birefnet(&mut model_input);
+
+    super::super::trace::note(|| match second {
+        Some(s) => format!("trim 1 {first:?}, crop {crop:?}; trim 2 moved it to {s:?}"),
+        None => format!("trim 1 {first:?}, crop {crop:?}; trim 2 agrees (within {TRIM_RECHECK_TOLERANCE_PX} px)"),
+    });
+    super::super::trace::image(
+        super::super::trace::stage::TRIM,
+        "Trims on the colour-balanced working copy: cyan = trim 1, yellow = trim 2 (only when it moved), green = trim 1's crop",
+        || {
+            let mut view = balanced.clone();
+            let thick = (balanced.width().max(balanced.height()) / 400).max(2);
+            let draw = |view: &mut RgbImage, r: Rect, c: [u8; 3]| {
+                super::super::trace::outline(view, r.x as i64, r.y as i64, r.w, r.h, c, thick)
+            };
+            draw(&mut view, first, [0, 255, 255]);
+            if let Some(s) = second {
+                draw(&mut view, s, [255, 255, 0]);
+            }
+            draw(&mut view, crop, [0, 255, 0]);
+            view
+        },
+    );
+
+    Ok(Optimised { model_input, crop, first, second })
+}
+
+/// Trim 2, the control: run the trim again on trim 1's box and say whether it moved.
+///
+/// The second run samples the border of `first` — which, when a mono-colour frame surrounded the real
+/// picture, is the frame's inner colour, not the colour the first run saw — and boxes what differs
+/// from that. `Some(second box)` when any side is more than `TRIM_RECHECK_TOLERANCE_PX` away from
+/// `first`; `None` when the box held still, or when the second run finds nothing at all.
+fn recheck_box(img: &RgbImage, first: Rect) -> Option<Rect> {
+    let inner = image::imageops::crop_imm(img, first.x, first.y, first.w, first.h).to_image();
+    let found = product_box(&inner)?;
+    let second = Rect { x: first.x + found.x, y: first.y + found.y, w: found.w, h: found.h };
+    let moved = |a: u32, b: u32| a.abs_diff(b) > TRIM_RECHECK_TOLERANCE_PX;
+    (moved(first.x, second.x)
+        || moved(first.y, second.y)
+        || moved(first.x + first.w, second.x + second.w)
+        || moved(first.y + first.h, second.y + second.h))
+    .then_some(second)
 }
 
 /// Pre-compress each channel so BiRefNet's ImageNet normalisation (`(x/255 − mean) / std` with
@@ -320,16 +390,13 @@ fn product_box(img: &RgbImage) -> Option<Rect> {
 //
 // A measurement primitive, upstream of the mask. It reports, per edge, whether that border is a
 // flat band and how it relates to the frame's backdrop, plus whether the background outside the
-// product proxy is textured. The plan's decision table reads this to drive trimming (Part C) or a
-// frame peel (deferred Part D). Only the MEASUREMENT lives here for now: wiring the actions into
-// `optimize` changes real output and must be tuned against the mountain/268 stems first, so the
-// primitive is deliberately not called by the pipeline yet.
+// product proxy is textured. [`detect_letterbox`] reads it to find flat padding bars on a textured
+// scene; `preprocess` calls it on the full-resolution image and keeps the result in
+// `Prepared::letterbox`, which R1 reads.
 
-// <jbpair goal="Part C per-edge trim/texture detector + trim_letterbox: edge-flatness span, same-colour and bar-depth tolerances, the high-pass texture threshold, and the letterbox/pillarbox-trim decision (incl. the 268 EIX-touch consequence); unwired — build the crop/seam-carve re-framing and tune these on the real 41/46 stems in /pair">
 /// How one edge relates to the frame's backdrop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
-enum EdgeKind {
+pub enum EdgeKind {
     /// Flat, and its colour matches the overall border backdrop — a plain backdrop band.
     Backdrop,
     /// Flat, but a different colour from the backdrop — a coloured pad or frame band.
@@ -379,7 +446,6 @@ fn edge_flat_median(samples: &[Rgb<u8>]) -> (bool, [u8; 3]) {
 /// Classify all four edges `[T, R, B, L]` against the frame's backdrop (the median of every border
 /// sample, outliers dropped). A flat edge within `T_EDGE_FLAT` of that backdrop on every channel is
 /// `Backdrop`; a flat edge of another colour is `FlatOther`; a non-flat edge is `Varied`.
-#[cfg_attr(not(test), allow(dead_code))]
 fn classify_trim_edges(img: &RgbImage) -> [EdgeKind; 4] {
     let backdrop = median_rgb(&drop_outliers(&border_samples(img)));
     [0u8, 1, 2, 3].map(|edge| {
@@ -394,10 +460,14 @@ fn classify_trim_edges(img: &RgbImage) -> [EdgeKind; 4] {
     })
 }
 
-/// Mean 3x3-Laplacian magnitude (on luma) over the interior of `region` — a cheap texture measure.
+/// Mean 3x3 8-neighbour-Laplacian magnitude (on luma) over the interior of `region`, skipping the
+/// pixels inside `exclude` — a cheap texture measure.
 /// A high response means a textured background (a Part C scene); near-zero means a flat region (a
 /// frame/backdrop — the deferred Part D double-flat signal). Compared against `T_TEXTURE_HIGHPASS`.
-fn highpass_texture(img: &RgbImage, region: Rect) -> f32 {
+pub fn highpass_texture(img: &RgbImage, region: Rect, exclude: Option<Rect>) -> f32 {
+    let skipped = |x: u32, y: u32| {
+        exclude.is_some_and(|e| x >= e.x && x < e.x + e.w && y >= e.y && y < e.y + e.h)
+    };
     let luma = |x: u32, y: u32| {
         let p = img.get_pixel(x, y);
         0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32
@@ -410,11 +480,18 @@ fn highpass_texture(img: &RgbImage, region: Rect) -> f32 {
     let (mut sum, mut n) = (0.0f32, 0u32);
     for y in (y0 + 1)..(y1 - 1) {
         for x in (x0 + 1)..(x1 - 1) {
-            let lap = 4.0 * luma(x, y)
+            if skipped(x, y) {
+                continue;
+            }
+            let lap = 8.0 * luma(x, y)
                 - luma(x - 1, y)
                 - luma(x + 1, y)
                 - luma(x, y - 1)
-                - luma(x, y + 1);
+                - luma(x, y + 1)
+                - luma(x - 1, y - 1)
+                - luma(x + 1, y - 1)
+                - luma(x - 1, y + 1)
+                - luma(x + 1, y + 1);
             sum += lap.abs();
             n += 1;
         }
@@ -426,15 +503,19 @@ fn highpass_texture(img: &RgbImage, region: Rect) -> f32 {
     }
 }
 
-/// Whether the background outside the product proxy is textured enough to count as a real scene
-/// (Part C) rather than a flat frame/backdrop (Part D). The proxy is `product_box`, since there is
-/// no segmask this far upstream. With no product box the whole frame is sampled.
-fn background_is_textured(img: &RgbImage) -> bool {
+/// The product proxy of `img` and the texture measured outside it. The proxy is `product_box`,
+/// since there is no segmask this far upstream. With no product box the whole image is measured.
+pub fn background_texture(img: &RgbImage) -> (Option<Rect>, f32) {
     let frame = Rect { x: 0, y: 0, w: img.width(), h: img.height() };
-    // Sampling the whole frame also sweeps the product, but a texture *above* the threshold there
-    // only reinforces "textured"; the quiet-background case is the one that must read low, and it
-    // does. A tighter exclusion of the product box is a tuning refinement for /pair.
-    highpass_texture(img, frame) > T_TEXTURE_HIGHPASS
+    let proxy = product_box(img);
+    (proxy, highpass_texture(img, frame, proxy))
+}
+
+/// Whether the background outside the product proxy is textured enough to count as a real scene
+/// (Part C) rather than a flat frame/backdrop (Part D).
+#[cfg(test)]
+fn background_is_textured(img: &RgbImage) -> bool {
+    background_texture(img).1 > T_TEXTURE_HIGHPASS
 }
 
 /// Whether ≥99% of row `y`'s pixels are within `T_EDGE_FLAT` of `bar` on every channel.
@@ -474,29 +555,50 @@ fn bar_depth(img: &RgbImage, edge: u8, bar: [u8; 3]) -> u32 {
     }
 }
 
-/// Detect symmetric flat letterbox/pillarbox bars and return the content rectangle to keep, or
-/// `None` when there is nothing safe to trim (plan Part C's trim action — the mountain/268 case).
-///
-/// An axis is trimmed only when BOTH its edges are flat bars of the same colour AND BOTH edges of
-/// the *other* axis are `Varied` (textured content reaches them), and the kept interior itself
-/// reads as textured. Those conditions are what a genuine letterbox/pillarbox looks like, and they
-/// are exactly the hard bound: a freestanding product on a plain backdrop has flat edges on *both*
-/// axes, so neither is trimmed and `EIX0000` can never flip. A coloured frame (all four flat — the
-/// deferred Part D case) likewise has no `Varied` axis, so it is left alone.
-pub fn trim_letterbox(img: &RgbImage) -> Option<Rect> {
-    let (w, h) = img.dimensions();
-    let prof = [0u8, 1, 2, 3].map(|e| edge_flat_median(&edge_samples(img, e)));
-    let flat = |e: usize| prof[e].0;
-    let col = |e: usize| prof[e].1;
-    let same = |a: usize, b: usize| (0..3).all(|c| col(a)[c].abs_diff(col(b)[c]) as u16 <= T_EDGE_FLAT);
+/// What the letterbox detector measured, for the stage image and the log.
+pub struct LetterboxReport {
+    /// Each edge against the frame's backdrop, `[T, R, B, L]`.
+    pub kinds: [EdgeKind; 4],
+    /// The product proxy ([`product_box`]) of the trimmed interior, in `img` coordinates, and the
+    /// texture measured outside it. Both stay `None` unless the bars were found, because the
+    /// texture is only measured then. `proxy` is also `None` when `product_box` found nothing, in
+    /// which case the whole interior is measured.
+    pub proxy: Option<Rect>,
+    pub texture: Option<f32>,
+    /// The content rectangle once the bars are cut, when the plan's pattern matched. Before the
+    /// texture test.
+    pub bars: Option<Rect>,
+    /// `bars`, once the interior also reads as textured: the rectangle to keep.
+    pub keep: Option<Rect>,
+}
 
+/// Detect flat padding bars on one axis (plan Part C's trim action) and say what was measured.
+///
+/// The plan's table: an opposite pair of edges that are both `FlatOther` (flat, in a colour that is
+/// not the frame's backdrop) while the other pair is `Varied` is padding on that axis, and it is
+/// trimmed. Every other mix leaves the image whole. That is the hard bound: a freestanding product
+/// on a plain backdrop has `Backdrop` edges, so it can never be trimmed and `EIX0000` cannot flip.
+///
+/// Because the backdrop is the median of the border samples, two same-coloured bars read as the
+/// backdrop themselves (10 of the 16 samples sit in them), so only bars that differ from the border
+/// median — in practice two differently coloured bars — are trimmed.
+///
+/// Texture is then measured on the trimmed interior, outside its product proxy; a flat interior is a
+/// frame (the deferred Part D case) and is left alone.
+pub fn detect_letterbox(img: &RgbImage) -> LetterboxReport {
+    let (w, h) = img.dimensions();
+    let kinds = classify_trim_edges(img);
+    let mut report = LetterboxReport { kinds, proxy: None, texture: None, bars: None, keep: None };
+
+    use EdgeKind::{FlatOther, Varied};
     // Top=0, Right=1, Bottom=2, Left=3.
-    let horiz = flat(0) && flat(2) && same(0, 2) && !flat(1) && !flat(3); // top/bottom bars
-    let vert = flat(3) && flat(1) && same(3, 1) && !flat(0) && !flat(2); // left/right bars
+    let horiz = kinds[0] == FlatOther && kinds[2] == FlatOther && kinds[1] == Varied && kinds[3] == Varied;
+    let vert = kinds[3] == FlatOther && kinds[1] == FlatOther && kinds[0] == Varied && kinds[2] == Varied;
     if !horiz && !vert {
-        return None;
+        return report;
     }
 
+    let col = |e: u8| edge_flat_median(&edge_samples(img, e)).1;
     let (mut x0, mut y0, mut x1, mut y1) = (0u32, 0u32, w, h);
     if horiz {
         y0 = bar_depth(img, 0, col(0));
@@ -508,14 +610,22 @@ pub fn trim_letterbox(img: &RgbImage) -> Option<Rect> {
     }
     // Refuse a pathological over-trim that would keep less than a quarter of either axis.
     if x1 <= x0 + w / 4 || y1 <= y0 + h / 4 {
-        return None;
+        return report;
     }
     let keep = Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-    // Hard-bound confirmation: only trim when what remains is a genuine textured scene.
+    report.bars = Some(keep);
     let interior = image::imageops::crop_imm(img, keep.x, keep.y, keep.w, keep.h).to_image();
-    background_is_textured(&interior).then_some(keep)
+    let (proxy, texture) = background_texture(&interior);
+    report.proxy = proxy.map(|p| Rect { x: p.x + keep.x, y: p.y + keep.y, w: p.w, h: p.h });
+    report.texture = Some(texture);
+    report.keep = (texture > T_TEXTURE_HIGHPASS).then_some(keep);
+    report
 }
-// </jbpair>
+
+/// The rectangle of `img` to keep once flat padding bars are cut, or `None`. See [`detect_letterbox`].
+pub fn trim_letterbox(img: &RgbImage) -> Option<Rect> {
+    detect_letterbox(img).keep
+}
 
 /// The crop BiRefNet is shown: a square around `product`, inside the frame `[0, w) x [0, h)`.
 ///
@@ -625,9 +735,28 @@ mod tests {
 
     #[test]
     fn trim_letterbox_crops_pillarbox_bars_on_a_textured_scene() {
-        // White bars down the left and right 10 columns; a textured scene between (a pseudo-random
-        // pattern, so the top/bottom edges read as varied at their sample columns rather than
-        // aliasing back to white).
+        // A white bar down the left 10 columns and a black one down the right 10; a textured scene
+        // between (a pseudo-random pattern, so the top/bottom edges read as varied at their sample
+        // columns rather than aliasing back to a bar colour). The bars differ from each other, so
+        // the border median lands in the texture and both bars read as `FlatOther`.
+        let mut img = RgbImage::from_pixel(60, 60, Rgb([255, 255, 255]));
+        for y in 0..60u32 {
+            for x in 10..60u32 {
+                let v = if x >= 50 { 0 } else { ((x * 37 + y * 101) % 256) as u8 };
+                img.put_pixel(x, y, Rgb([v, v, v]));
+            }
+        }
+        let report = detect_letterbox(&img);
+        assert_eq!(report.kinds[3], EdgeKind::FlatOther);
+        assert_eq!(report.kinds[1], EdgeKind::FlatOther);
+        assert_eq!(report.keep, Some(Rect { x: 10, y: 0, w: 40, h: 60 }));
+        assert!(report.texture.expect("the interior was measured") > T_TEXTURE_HIGHPASS);
+    }
+
+    #[test]
+    fn trim_letterbox_leaves_two_same_coloured_bars_alone() {
+        // Same-coloured bars hold 10 of the 16 border samples, so the border median is the bar
+        // colour: the bars read as the backdrop, not as `FlatOther`, and nothing is trimmed.
         let mut img = RgbImage::from_pixel(60, 60, Rgb([255, 255, 255]));
         for y in 0..60u32 {
             for x in 10..50u32 {
@@ -635,8 +764,8 @@ mod tests {
                 img.put_pixel(x, y, Rgb([v, v, v]));
             }
         }
-        let keep = trim_letterbox(&img).expect("pillarbox should be trimmed");
-        assert_eq!(keep, Rect { x: 10, y: 0, w: 40, h: 60 });
+        assert_eq!(detect_letterbox(&img).kinds[3], EdgeKind::Backdrop);
+        assert!(trim_letterbox(&img).is_none());
     }
 
     #[test]
@@ -652,10 +781,89 @@ mod tests {
         assert!(trim_letterbox(&img).is_none());
     }
 
+    /// A passe-partout: a mono-colour frame `ring` px wide round a plain backdrop, with a dark
+    /// product (`prod` x `prod`) in the middle of the backdrop.
+    fn framed(size: u32, ring: u32, prod: u32) -> RgbImage {
+        let mut img = RgbImage::from_pixel(size, size, Rgb([200, 180, 160]));
+        for y in ring..size - ring {
+            for x in ring..size - ring {
+                img.put_pixel(x, y, Rgb([250, 250, 250]));
+            }
+        }
+        let p0 = (size - prod) / 2;
+        for y in p0..p0 + prod {
+            for x in p0..p0 + prod {
+                img.put_pixel(x, y, Rgb([20, 20, 30]));
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn trim_two_peels_a_passe_partout_that_trim_one_stopped_at() {
+        // Trim 1 samples the frame colour and boxes everything inside it, backdrop included. Trim 2
+        // samples that box's border — the backdrop — and boxes the product alone.
+        let img = framed(200, 40, 40);
+        let first = product_box(&img).expect("trim 1 finds the inside of the frame");
+        assert_eq!(first, rect(40, 40, 120, 120));
+        let second = recheck_box(&img, first).expect("the box moved, so a frame was found");
+        assert_eq!(second, rect(80, 80, 40, 40));
+
+        // The model is shown trim 1's box (the 120 px inside of the frame, backed off); trim 2's box
+        // (the product) is handed on as information.
+        let both = optimize_both(&img).unwrap();
+        assert_eq!((both.first, both.second), (first, Some(second)));
+        assert_eq!(both.crop, square_crop(first, 200, 200));
+    }
+
+    #[test]
+    fn trim_two_leaves_a_box_that_holds_still() {
+        // A product on a plain backdrop: the second run samples the same backdrop and agrees.
+        let mut img = RgbImage::from_pixel(100, 100, Rgb([250, 250, 250]));
+        for y in 30..60 {
+            for x in 40..70 {
+                img.put_pixel(x, y, Rgb([10, 20, 30]));
+            }
+        }
+        let first = product_box(&img).unwrap();
+        assert_eq!(recheck_box(&img, first), None);
+    }
+
+    #[test]
+    fn trim_two_ignores_a_move_within_the_tolerance() {
+        // A 2 px ring: trim 2's box sits 2 px inside trim 1's on every side — not MORE than 2.
+        let mut img = RgbImage::from_pixel(100, 100, Rgb([250, 250, 250]));
+        for y in 20..80 {
+            for x in 20..80 {
+                let edge = x < 22 || x >= 78 || y < 22 || y >= 78;
+                img.put_pixel(x, y, if edge { Rgb([200, 200, 200]) } else { Rgb([250, 250, 250]) });
+            }
+        }
+        for y in 40..60 {
+            for x in 40..60 {
+                img.put_pixel(x, y, Rgb([10, 10, 10]));
+            }
+        }
+        let first = product_box(&img).unwrap();
+        assert_eq!(first, rect(20, 20, 60, 60));
+        assert_eq!(recheck_box(&img, first), None, "2 px is inside the tolerance");
+        // The same picture with a 3 px ring does move it.
+        let mut thick = img.clone();
+        for y in 20..80 {
+            for x in 20..80 {
+                if x < 23 || x >= 77 || y < 23 || y >= 77 {
+                    thick.put_pixel(x, y, Rgb([200, 200, 200]));
+                }
+            }
+        }
+        let first = product_box(&thick).unwrap();
+        assert!(recheck_box(&thick, first).is_some(), "3 px is outside it");
+    }
+
     #[test]
     fn highpass_separates_a_flat_region_from_texture() {
         let flat = RgbImage::from_pixel(20, 20, Rgb([128, 128, 128]));
-        assert_eq!(highpass_texture(&flat, Rect { x: 0, y: 0, w: 20, h: 20 }), 0.0);
+        assert_eq!(highpass_texture(&flat, Rect { x: 0, y: 0, w: 20, h: 20 }, None), 0.0);
         assert!(!background_is_textured(&flat));
 
         let mut checker = RgbImage::new(20, 20);
@@ -665,8 +873,11 @@ mod tests {
                 checker.put_pixel(x, y, Rgb([v, v, v]));
             }
         }
-        assert!(highpass_texture(&checker, Rect { x: 0, y: 0, w: 20, h: 20 }) > T_TEXTURE_HIGHPASS);
+        let all = Rect { x: 0, y: 0, w: 20, h: 20 };
+        assert!(highpass_texture(&checker, all, None) > T_TEXTURE_HIGHPASS);
         assert!(background_is_textured(&checker));
+        // Texture inside the excluded box does not count.
+        assert_eq!(highpass_texture(&checker, all, Some(all)), 0.0);
     }
 
     /// A full-range image (half black, half white) has an identity table: the input is used as it is.

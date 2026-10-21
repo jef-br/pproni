@@ -11,10 +11,10 @@ the actual measured number — never "looks fine". Labels resolve via
   image and reports: the any-colour-band result (check 1, method below),
   transparent-pixel count, % filled, and the streak-vs-background metric below.
 - **Any-colour-band check (check 1):** a wrongly-introduced fill band of *any* colour
-  (not only black `(0,0,0)`) fails. Proposed measurement: run the trim twice in
-  succession and compare the two diffs — a spurious band surfaces as a difference the
-  second pass reveals. **To confirm with the user:** the exact two-trim / two-diff
-  mechanics before the runner implements it.
+  (not only black `(0,0,0)`) fails. Measured by idempotency: trim the image → `output1`,
+  trim `output1` again → `output2`, then compare `diff(input, output1)` against
+  `diff(output1, output2)`. A well-behaved trim is a near-no-op the second time, so
+  `diff2 ≈ empty`; a spurious fill band makes `diff2` non-empty and fails the check.
 - **Streak-vs-background metric (decided in /pair 2026-10-20):**
   - Reference = median colour of a **clean local background patch adjacent to
     the former streak** (not pure white, not the global BGC).

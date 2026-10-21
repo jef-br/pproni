@@ -108,9 +108,26 @@ it — that is expected, not drift.
 | `core` | `process_file(input, output) -> Result<(), String>` |
 | `core::config` | `JPEG_QUALITY`, `WORKING_SIZE`, `GATE_MARGIN_PX`, `REFINE_BAND_PX`, `REFINE_SAFETY_PX`, `REFINE_CONTEXT_PX` |
 | `core::preprocessor` | `Decoded`, `Prepared`, `load`, `preprocess`, `prepare`; `optimizer::optimize` |
+| `core::framing` | `decide`, `Decision` (`Keep`, `Centre`, `Crop`, `Peel`), `border_colour`, `deepen_peel` |
 | `core::processor::routes` | `Route`, `Route::select`, `dispatch` |
 | `core::processor::routes::{center_and_stretch, crop_square, fallback}` | `apply` |
 | `core::exporter` | `export`, `ShotInputs`, `shot_tags`; `colors::sample` (BGC/FGC); `save::save_jpeg_srgb`, `icc::srgb_profile` |
+
+`core::framing` runs once after the model, on trim 1's box, trim 2's box (when it moved), the number of
+edges the subject touches and the mask. It tells padding and frames from real backdrop:
+
+* **Bars** (trim 1 cut both sides of one axis, the other axis loses at most 2% in total, the subject
+  touches an edge, and the two cut sides are of similar width: the thinner is at least
+  `FRAMING_BARS_SYMMETRY` = 0.3 of the thicker). Unequal cuts are backdrop round an off-centre subject
+  (image 19) and stay `Keep`. Then, one touched edge and smooth content (high-pass texture outside the
+  mask box at most `T_TEXTURE_HIGHPASS`) is `Crop`: the bars are cut off and R1 frames the content like
+  any picture, that edge pinned, 4.2% on the free side, the background stretched over the rest (image
+  41). Two or more touched edges, or busy content (image 46: 69.5 against 10.0 on 41), is `Centre`: R1
+  cuts the square from the content box with equal padding either side.
+* **Frame**: `Peel`, as described in `docs/WORK_STATE.md`.
+
+R1's margin: each free side of an axis takes 4.2% of the subject's extent, so an axis with two free
+sides takes 8.4% and one with a single free side 4.2%. An axis pinned on both sides takes none.
 
 The refine params live in `config` next to `WORKING_SIZE` because they are expressed in
 working-resolution pixels — change one and the others shift meaning.
@@ -283,7 +300,8 @@ What each container now says:
   failure), the desktop folder bootstrap, and `batch::run`'s rayon fan-out with its one level of
   subfolder recursion mirrored into `PPRONI-OUTPUT` and `PPRONI-BACKUP`.
 - **Preprocessor** — decode + EXIF, the unconditional alpha flatten onto white, the sRGB branch,
-  the optimiser (colour balance, then the trim crop), and `Prepared { original, working, model_input, crop }`.
+  the optimiser (colour balance, then the trim crop), the letterbox/pillarbox-bar detector, and
+  `Prepared { original, working, model_input, crop, letterbox }`.
 - **Shot Classifier** — segmentation, pass-1 `gate`, pass-2 `refine_edge`, the graze test, and the
   `ShotClassification` + `Mask` that leaves for the Processor. The no-verdict `None` is a node of
   its own, because it is not the same thing as an empty edge list.

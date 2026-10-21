@@ -30,6 +30,30 @@ pub struct Decoded {
     pub icc_profile: Option<Vec<u8>>,
 }
 
+/// The two trims' tight boxes (`working` coordinates). See [`optimizer::optimize_both`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Trims {
+    /// Trim 1: the tight box around everything that is not backdrop.
+    pub first: Rect,
+    /// Trim 2: trim 1's box trimmed again, when that moved it by more than the tolerance.
+    pub second: Option<Rect>,
+}
+
+impl Trims {
+    /// No trims: for pictures built by hand in tests.
+    pub const NONE: Trims = Trims { first: Rect { x: 0, y: 0, w: 0, h: 0 }, second: None };
+}
+
+/// How R1 frames the picture once `core::framing` has read the trims against the mask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Framing {
+    /// R1 plans the square from the subject, as always.
+    Free,
+    /// The picture is padded on one axis (white bars): the square is cut from the content box (`working`
+    /// coordinates) with equal padding either side of it, and nothing is aligned on the subject.
+    CentreContent(Rect),
+}
+
 /// The homogenized image, at the two resolutions the pipeline works in.
 pub struct Prepared {
     /// Full resolution, sRGB, EXIF-applied, alpha flattened onto white.
@@ -42,6 +66,15 @@ pub struct Prepared {
     pub model_input: RgbImage,
     /// Where `model_input` was cut from, in `working` coordinates.
     pub crop: Rect,
+    /// The two trims' tight boxes, in `working` coordinates. `core::framing` reads them against the
+    /// segmask once the model has run (once: on `model_input`).
+    pub trims: Trims,
+    /// What `core::framing` decided about the padding or frame round the picture. Set after the
+    /// model has run; `Framing::Free` until then, and for most images after it.
+    pub framing: Framing,
+    /// The part of `original` left after flat letterbox/pillarbox bars are trimmed (`original`
+    /// coordinates), or `None` when no bars were found. Only R1 reads it; the model never does.
+    pub letterbox: Option<Rect>,
 }
 
 /// Load and homogenize in one call — what the pipeline uses.
@@ -85,22 +118,51 @@ pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
         trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
 
-    // NOTE (plan Part C): `optimizer::trim_letterbox` detects baked-in letterbox/pillarbox bars on
-    // textured scenes (mountain/268) and is unit-tested, but it is deliberately NOT wired in here
-    // yet. Trimming the bars alone regresses: on 268 it leaves a short frame that R1 then stretches
-    // to square, inventing a large smear (and shifting the edge-touch verdict). The trim is only
-    // safe once paired with Part C's re-framing (crop when a square crop preserves the mask; else
-    // the seam-carver, which needs its perceptual-quality gate tuned on the real stems in `/pair`).
-    // Until that path exists, wiring the trim would ship a worse output, so it stays a primitive.
+    // Plan Part C: flat letterbox/pillarbox bars on a textured scene (mountain/268) are found here,
+    // on the full-resolution image, before the mask exists. `original` itself is left whole; R1
+    // reads `letterbox` and re-frames the trimmed part (`extend::reframe_to_square`).
+    let report = optimizer::detect_letterbox(&original);
+    let letterbox = report.keep;
+    if trace::active() {
+        // Stage 02. With no bars found the texture is never measured, so show the proxy on the
+        // whole frame (trace only) to let it be judged on any image.
+        let (proxy, texture, region) = match report.texture {
+            Some(t) => (report.proxy, t, report.bars),
+            None => {
+                let (p, t) = optimizer::background_texture(&original);
+                (p, t, None)
+            }
+        };
+        trace::note(|| format!("letterbox edges [T, R, B, L] = {:?}", report.kinds));
+        trace::note(|| {
+            let area = region.map_or(original.width() as u64 * original.height() as u64, |r| r.w as u64 * r.h as u64);
+            let share = proxy.map_or(0.0, |p| 100.0 * (p.w as u64 * p.h as u64) as f64 / area.max(1) as f64);
+            format!(
+                "letterbox bars {:?}, keep {:?}; product proxy {:?} covers {share:.1}% of the {} measured, texture outside it {texture:.2} (textured above {})",
+                report.bars,
+                report.keep,
+                proxy,
+                if report.texture.is_some() { "interior" } else { "frame, not used: no bars" },
+                crate::core::config::T_TEXTURE_HIGHPASS,
+            )
+        });
+        trace::image(
+            trace::stage::LETTERBOX,
+            "Letterbox check: edge bars green = backdrop, orange = flat other, magenta = varied; dimmed = trimmed bars; cyan = product proxy",
+            || trace::letterbox_view(&original, report.kinds, report.bars, proxy),
+        );
+    }
 
     let working = downscale_to_working(&original);
 
     // Colour-balance a copy of the working image and crop it to the product, so the segmentation
     // model finds the subject more reliably. `working` and `original` stay true-colour: the exporter
     // composes from `original` and samples BGC/FGC from `working`.
-    let (model_input, crop) = optimizer::optimize(&working)?;
+    let both = optimizer::optimize_both(&working)?;
+    let (model_input, crop) = (both.model_input, both.crop);
+    let trims = Trims { first: both.first, second: both.second };
     trace::note(|| format!("Optimiser {crop:?}\nworking copy: {}x{}", working.width(), working.height()));
-    Ok(Prepared { original, working, model_input, crop })
+    Ok(Prepared { original, working, model_input, crop, trims, framing: Framing::Free, letterbox })
 }
 
 // Composite onto white so transparent pixels become white pixels. The alpha channel is not carried
