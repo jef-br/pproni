@@ -17,12 +17,13 @@
 //!   from the band outward;
 //! * the **overhang** is what the square reaches past that border. The source is stretched evenly
 //!   ([`stretch_line`]) until it covers the source and the overhang together: one scale for the whole
-//!   source, so no part of it is magnified more than the rest. Nothing is invented: no mirror, no blur,
-//!   no noise.
+//!   source, so no part of it is magnified more than the rest. Nothing is invented in the stretch: no
+//!   mirror, no blur, no noise.
 //!
 //! A line with no source at all (the grown product runs to the border there) is filled flat with the
-//! background colour, never black, and then replaced by the nearest clean line's fill
-//! ([`borrow_neighbour_lines`]). All of that is the same for all four edges.
+//! background colour, never black, and then replaced by a blend of the clean lines either side
+//! ([`borrow_neighbour_lines`]), with the photo's own measured grain added to it so it does not read
+//! as a flat block. That is the only place anything is added. All of it is the same for all four edges.
 
 use image::{Rgb, RgbImage};
 
@@ -114,6 +115,9 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
     // Position of the `d`-th pixel outward from the band, whose edge on this side is `edge`.
     let outward = |edge: i64, d: i64| if low_side { edge - 1 - d } else { edge + d };
 
+    // The photo's own grain along this edge, measured on the real source before anything is stretched.
+    let grain = edge_grain(canvas, job, &at, low_side);
+
     // Per line: where the band starts on this side, and how long the segment and its source are.
     let mut seg_len = vec![0i64; job.bands.len()];
     let mut bled = vec![false; job.bands.len()];
@@ -153,7 +157,85 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
             canvas.put_pixel(x, y, px);
         }
     }
-    borrow_neighbour_lines(canvas, job, &bled, &seg_len, &band_edge, &at, &outward);
+    borrow_neighbour_lines(canvas, job, &bled, &seg_len, &band_edge, &at, &outward, grain);
+}
+
+/// The grain of the real source along one edge, per channel, as the standard deviation of the noise.
+///
+/// Measured on sampled pixels whose whole 3x3 window lies in the source of its own line and of the two
+/// lines beside it: the residual is `v - mean of the 8 neighbours`, and its 25th percentile (taken in
+/// flat areas, so texture does not count as grain) is scaled to a Gaussian's sigma. Pixels are
+/// addressed by their distance `k` from the real border, so the edges measure the same way. An edge
+/// with too little source to measure reads as no grain.
+fn edge_grain(canvas: &RgbImage, job: &EdgeJob<'_>, at: &dyn Fn(i64, i64) -> (u32, u32), low_side: bool) -> [f32; 3] {
+    let (r0, r1) = job.real;
+    // How many source pixels each line has.
+    let len: Vec<i64> = job
+        .bands
+        .iter()
+        .map(|&(lo, hi)| {
+            let a = lo.clamp(r0, r1);
+            let b = hi.max(a).clamp(r0, r1);
+            if low_side {
+                a - r0
+            } else {
+                r1 - b
+            }
+        })
+        .collect();
+    // Position along the line of the pixel `k` in from the real border.
+    let pos = |k: i64| if low_side { r0 + k } else { r1 - 1 - k };
+    let mut residuals: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for i in (1..len.len().saturating_sub(1)).step_by(2) {
+        let n = len[i - 1].min(len[i]).min(len[i + 1]);
+        let mut k = 1;
+        while k < n - 1 {
+            let mut sum = [0f32; 3];
+            for (dl, dk) in [(-1i64, -1i64), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)] {
+                let (x, y) = at(job.first + i as i64 + dl, pos(k + dk));
+                let p = canvas.get_pixel(x, y);
+                for c in 0..3 {
+                    sum[c] += p[c] as f32;
+                }
+            }
+            let (x, y) = at(job.first + i as i64, pos(k));
+            let p = canvas.get_pixel(x, y);
+            for c in 0..3 {
+                residuals[c].push((p[c] as f32 - sum[c] / 8.0).abs());
+            }
+            k += 2;
+        }
+    }
+    let mut sigma = [0f32; 3];
+    for c in 0..3 {
+        if residuals[c].len() < GRAIN_MIN_SAMPLES {
+            continue;
+        }
+        let q = residuals[c].len() / 4;
+        residuals[c].select_nth_unstable_by(q, |a, b| a.total_cmp(b));
+        // The 25th percentile of |N(0, s)| is 0.3186 s, and the residual's own sigma is
+        // sigma * sqrt(9/8): one pixel against the mean of its eight neighbours.
+        sigma[c] = residuals[c][q] / 0.3186 / (9.0f32 / 8.0).sqrt();
+    }
+    sigma
+}
+
+/// Fewest samples an edge needs for its grain to be measured.
+const GRAIN_MIN_SAMPLES: usize = 30;
+
+/// A deterministic standard-normal value from three small numbers (Box-Muller on a hash): the same
+/// picture always gives the same grain.
+fn gauss(a: u64, b: u64, c: u64) -> f32 {
+    fn mix(mut z: u64) -> u64 {
+        z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    let h = mix((a << 40) ^ (b << 8) ^ c ^ 0xA5A5);
+    let u1 = ((h >> 11) as f64 / (1u64 << 53) as f64).max(1e-12);
+    let u2 = (mix(h) >> 11) as f64 / (1u64 << 53) as f64;
+    ((-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()) as f32
 }
 
 /// Stretch `seg` (the source, ordered from the product band outward) evenly to `total` pixels.
@@ -197,8 +279,9 @@ fn sample_at(seg: &[Rgb<u8>], s: f32) -> Rgb<u8> {
 /// side), weighted by how close the line is to each. A run of bled lines therefore becomes a smooth
 /// ramp from the clean line before it to the one after it, not two blocks with a step in the middle.
 /// With a clean line on one side only, that line is copied. A line without a clean neighbour anywhere
-/// along the edge keeps its flat fill. Only bled pixels are ever written, so every stretched or copied
-/// pixel is byte-for-byte unchanged.
+/// along the edge keeps its flat fill. The blend gets the photo's measured `grain` (see [`edge_grain`])
+/// added, so it does not read as a flat block among grainy neighbours. Only bled pixels are ever
+/// written, so every stretched or copied pixel is byte-for-byte unchanged.
 fn borrow_neighbour_lines(
     canvas: &mut RgbImage,
     job: &EdgeJob<'_>,
@@ -207,6 +290,7 @@ fn borrow_neighbour_lines(
     band_edge: &[i64],
     at: &dyn Fn(i64, i64) -> (u32, u32),
     outward: &dyn Fn(i64, i64) -> i64,
+    grain: [f32; 3],
 ) {
     let n = bled.len();
     if !bled.iter().any(|&b| b) {
@@ -249,7 +333,12 @@ fn borrow_neighbour_lines(
             let (ax, ay) = at(donor_a, pos);
             let (bx, by) = at(donor_b, pos);
             let (pa, pb) = (*canvas.get_pixel(ax, ay), *canvas.get_pixel(bx, by));
-            let px = Rgb([0, 1, 2].map(|c| (pa[c] as f32 + (pb[c] as f32 - pa[c] as f32) * t).round() as u8));
+            // The blend of two clean lines is smooth, and the photo around it is not: add the photo's
+            // own grain, measured on this edge, so the filled lines do not read as flat blocks.
+            let px = Rgb([0, 1, 2].map(|c| {
+                let v = pa[c] as f32 + (pb[c] as f32 - pa[c] as f32) * t + grain[c] * gauss(i as u64, d as u64, c as u64);
+                v.round().clamp(0.0, 255.0) as u8
+            }));
             let (x, y) = at(line, pos);
             canvas.put_pixel(x, y, px);
         }
@@ -403,6 +492,74 @@ mod tests {
         stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
         let col0: Vec<u8> = (0..5).map(|y| canvas.get_pixel(0, y)[0]).collect();
         assert_eq!(col0, vec![100, 125, 150, 175, 200]);
+    }
+
+    /// A deterministic noisy value, roughly N(0, sigma) per channel, to give a synthetic photo grain.
+    fn grainy(x: u32, y: u32, base: u8, sigma: f32) -> Rgb<u8> {
+        let g = |c: u64| gauss(x as u64 + 1000, y as u64, c) * sigma;
+        Rgb([0, 1, 2].map(|c| (base as f32 + g(c)).round().clamp(0.0, 255.0) as u8))
+    }
+
+    #[test]
+    fn the_grain_estimate_follows_the_noise_of_the_source_and_is_zero_for_a_clean_one() {
+        let side = 120u32;
+        let bands: Vec<(i64, i64)> = vec![(100, 120); side as usize];
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (0, 120) };
+        let at = |line: i64, pos: i64| (pos as u32, line as u32);
+        for sigma in [1.5f32, 3.0] {
+            let mut img = RgbImage::new(side, side);
+            for y in 0..side {
+                for x in 0..side {
+                    img.put_pixel(x, y, grainy(x, y, 128, sigma));
+                }
+            }
+            let est = edge_grain(&img, &job, &at, true);
+            for c in 0..3 {
+                assert!((est[c] - sigma).abs() < 0.3 * sigma, "sigma {sigma}: channel {c} read {}", est[c]);
+            }
+        }
+        let clean = RgbImage::from_pixel(side, side, Rgb([128, 128, 128]));
+        assert_eq!(edge_grain(&clean, &job, &at, true), [0.0; 3]);
+        // Texture is not grain: a smooth ramp with a few strong edges still reads as nearly clean.
+        let mut ramp = RgbImage::new(side, side);
+        for y in 0..side {
+            for x in 0..side {
+                ramp.put_pixel(x, y, Rgb([(x * 2) as u8, 100, 100]));
+            }
+        }
+        assert!(edge_grain(&ramp, &job, &at, true)[0] < 0.5);
+    }
+
+    #[test]
+    fn filled_lines_get_the_photos_grain_and_untouched_lines_do_not() {
+        // A grainy photo (sigma 3) whose rows 30..50 have no source: their fill is the blend of the
+        // clean rows round them, with grain on top, and it is not flat any more.
+        let (w, h) = (80u32, 80u32);
+        let mut canvas = RgbImage::new(w, h);
+        for y in 0..h {
+            for x in 20..w {
+                canvas.put_pixel(x, y, grainy(x, y, 150, 3.0));
+            }
+        }
+        let bands: Vec<(i64, i64)> = (0..h as i64).map(|y| if (30..50).contains(&y) { (20, 80) } else { (50, 80) }).collect();
+        let before = canvas.clone();
+        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80) }, None);
+        let values: Vec<f32> = (31..49).flat_map(|y| (0..20).map(move |x| (x, y))).map(|(x, y)| canvas.get_pixel(x, y)[0] as f32).collect();
+        let mean = values.iter().sum::<f32>() / values.len() as f32;
+        let sd = (values.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / values.len() as f32).sqrt();
+        assert!((mean - 150.0).abs() < 3.0, "the fill keeps the photo's level: {mean}");
+        assert!((1.5..4.5).contains(&sd), "the fill has about the photo's grain: sd {sd}");
+        // Lines that had background are the stretch alone: nothing was added to them.
+        for y in [5u32, 10, 60, 70] {
+            let seg: Vec<Rgb<u8>> = (0..30).map(|d| *before.get_pixel(49 - d, y)).collect();
+            for (d, px) in stretch_line(&seg, 50).into_iter().enumerate() {
+                assert_eq!(*canvas.get_pixel(49 - d as u32, y), px, "row {y} changed at distance {d}");
+            }
+        }
+        // Deterministic: the same picture gives the same grain.
+        let mut again = before.clone();
+        stretch_edge(&mut again, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80) }, None);
+        assert_eq!(canvas, again);
     }
 
     #[test]
