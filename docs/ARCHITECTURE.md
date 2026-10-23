@@ -123,11 +123,9 @@ edges the subject touches and the mask. It tells padding and frames from real ba
 * **Bars** (trim 1 cut both sides of one axis, the other axis loses at most 2% in total, the subject
   touches an edge, and the two cut sides are of similar width: the thinner is at least
   `FRAMING_BARS_SYMMETRY` = 0.3 of the thicker). Unequal cuts are backdrop round an off-centre subject
-  (image 19) and stay `Keep`. Then, one touched edge and smooth content (high-pass texture outside the
-  mask box at most `T_TEXTURE_HIGHPASS`) is `Crop`: the bars are cut off and R1 frames the content like
-  any picture, that edge pinned, 4.2% on the free side, the background stretched over the rest (image
-  41). Two or more touched edges, or busy content (image 46: 69.5 against 10.0 on 41), is `Centre`: R1
-  cuts the square from the content box with equal padding either side.
+  (image 19) and stay `Keep`. Every other bars case is `Centre` (images 3, 33, 35, 41, 46): R1 cuts
+  the square from the content box with equal padding either side. The scene behind such bars is
+  usually a lifestyle photo, and stretching it was tried on 41 and did not look convincing.
 * **Frame**: `Peel`, as described in `docs/WORK_STATE.md`.
 
 R1's margin: each free side of an axis takes 4.2% of the subject's extent, so an axis with two free

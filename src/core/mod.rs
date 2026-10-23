@@ -21,36 +21,22 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path) -> Result<(), St
     let mut classified = classify(&prep);
 
     // Framing: read the two trims against the mask the one model run gave, and see whether what trim 1
-    // cut off is padding or a frame (see `framing`). Bars on one axis are dropped (one edge touched,
-    // smooth content) or centred with padding by R1; a frame is peeled here, and the edge check runs
-    // again on the cropped picture — no second model run.
+    // cut off is padding or a frame (see `framing`). Bars on one axis are centred with padding by R1;
+    // a frame is peeled here, and the edge check runs again on the cropped picture — no second
+    // model run.
     let decision = classified.as_ref().map(|(class, mask)| {
-        let bounds = mask_bounds(mask);
-        let texture = preprocessor::optimizer::highpass_texture(&prep.working, prep.trims.first, bounds);
         let (decision, why) = framing::decide(
             prep.working.dimensions(),
             prep.trims.first,
             prep.trims.second,
             class.touches_edges.len(),
-            bounds,
-            texture,
+            mask_bounds(mask),
         );
         trace::note(|| format!("framing: {why}"));
         decision
     });
     match decision {
         Some(framing::Decision::Centre(content)) => prep.framing = Framing::CentreContent(content),
-        Some(framing::Decision::Crop(content)) => {
-            // The bars go; R1 frames the content like any picture. The verdict is kept as it was (the
-            // bars never touched the subject, so the edges it touches do not change, and EIX cannot
-            // flip); only the mask moves into the cropped frame.
-            if let Some((class, mask)) = classified.take() {
-                let mask = mask.cropped(content);
-                prep = peel(&prep, content);
-                trace::note(|| format!("bars dropped: the picture is now {}x{}", prep.original.width(), prep.original.height()));
-                classified = Some((class, mask));
-            }
-        }
         Some(framing::Decision::Peel(first)) => {
             if let Some((_, mask)) = &classified {
                 // Trim 1 can stop inside a frame the product runs into; go on while it is still frame.

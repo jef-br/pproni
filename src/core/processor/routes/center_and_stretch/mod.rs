@@ -193,7 +193,7 @@ pub fn apply(prep: &Prepared, shot: Shot<'_>) -> RgbImage {
     };
     let silhouette =
         Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height(), clearance_px(prep));
-    compose::compose(&prep.original, &plan, &silhouette, shot.bgc, config::R1_FILL_INPAINT_RADIUS_PX)
+    compose::compose(&prep.original, &plan, &silhouette, shot.bgc)
 }
 
 /// Where R1's square goes.
@@ -265,7 +265,7 @@ mod tests {
         let subject = Shot { class: &class, mask, bgc }.subject_bbox().expect("a subject");
         let plan = SquarePlan::new(subject, config::R1_MARGIN, Pins::NONE).expect("a legal square");
         let silhouette = Silhouette::from_mask(mask, img.width(), img.height(), 2);
-        compose::compose(img, &plan, &silhouette, bgc, 6)
+        compose::compose(img, &plan, &silhouette, bgc)
     }
 
     #[test]

@@ -113,21 +113,14 @@ pub const MAX_SIZE: u32 = 2000;
 /// axes' needs (`plan::SquarePlan::new`).
 pub const R1_MARGIN: f32 = 2.0*0.042;
 
-/// The stretch curve. Along one line, `x` runs from 0 (the pixel next to the product) to 1 (the
-/// image border), and the local stretch there is at most `f(x) = x^R1_STRETCH_CURVE_POWER`:
-/// 0% next to the product, +100% at the border (one pixel becomes two). With `e * 1.68` that is
-/// `sqrt(x^(2·e·1.68))`: f(0.5) ≈ 0.042, f(1) = 1. All of a line's stretch together is about
-/// `1 / (power + 1)` ≈ 18% of its source length; whatever overhang is left is invented.
-pub const R1_STRETCH_CURVE_POWER: f32 = std::f32::consts::E * 1.68;
-
 /// Standard deviation of the per-channel noise added to a flat BGC/white fill, so a line with no
 /// background left to stretch does not read as a dead-flat seam against its JPEG-noisy neighbours.
 pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
 
 // ---- R1 · mask-aware fill (plan Part A) -------------------------------------------------------
 //
-// These drive the segmask-aware stretch-then-invent fill. They are working values: the user allowed
-// them to be tuned (2026-10-21) when an image shows a problem, and none does now.
+// These drive the segmask-aware stretch (`center_and_stretch::compose`). They are working values: the
+// user allowed them to be tuned (2026-10-21) when an image shows a problem, and none does now.
 
 /// Plan name `FILL_SOURCE_CLEARANCE_PX`; the one distance between the product and the background
 /// the fill may use. The silhouette is grown outward by this many *working*-resolution pixels, in
@@ -144,12 +137,6 @@ pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
 /// widened only (never narrowed, so it always covers the product) until no edge moves faster than
 /// this. 1 is a 45° slope.
 pub const R1_BAND_SLOPE_PX_PER_LINE: u32 = 1;
-
-/// Plan name `FILL_INPAINT_RADIUS_PX`. Radius, in full-resolution pixels, of the circle around an
-/// invented pixel inside which existing background is read to judge its colour (the local
-/// boxplot), and the number of neighbouring lines whose stretch is averaged so adjacent lines move
-/// together.
-pub const R1_FILL_INPAINT_RADIUS_PX: u32 = 24;
 
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
 //

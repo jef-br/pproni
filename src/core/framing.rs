@@ -8,10 +8,9 @@
 //! * **Bars** — trim 1 cut both sides of ONE axis and next to nothing of the other, and the subject
 //!   touches an edge (EIX is not `0000`), and the two cut sides are of similar width (padding is added
 //!   evenly; plain backdrop round an off-centre product is not). The bars are padding, not backdrop to
-//!   stretch. With ONE edge touched the result is [`Decision::Crop`]: the bars are cut off and R1
-//!   frames the content as it would any picture (that edge pinned, 4.2% margin on the free side, the
-//!   background stretched over the rest). With two or more it is [`Decision::Centre`]: R1 cuts the
-//!   square from the content box with equal padding either side of it, aligned on nothing.
+//!   stretch, and the content behind them (a lifestyle scene, as on images 41 and 46) cannot be
+//!   stretched convincingly. The result is [`Decision::Centre`]: R1 cuts the square from the content
+//!   box with equal padding either side of it, aligned on nothing.
 //! * **Frame** — EIX is `0000`, trim 1 cut all four sides, trim 2 found nothing more to cut, and trim
 //!   1's box is square. The ring outside it is a frame: [`Decision::Peel`] crops the picture to
 //!   trim 1's box, and the edge check runs again on the cropped picture (the product the frame
@@ -32,10 +31,6 @@ pub enum Decision {
     Keep,
     /// White bars on one axis: centre this content box (`working` coordinates) in the square.
     Centre(Rect),
-    /// Bars on one axis and the subject touches exactly one edge: drop the bars (crop to this
-    /// content box, `working` coordinates) and let R1 frame what is left like any other picture:
-    /// that edge pinned, 4.2% margin on the free side, the background stretched over the rest.
-    Crop(Rect),
     /// A frame round the picture: crop to this box (`working` coordinates).
     Peel(Rect),
 }
@@ -43,10 +38,8 @@ pub enum Decision {
 /// Decide, and say why in one line for the log.
 ///
 /// `frame` is the working picture's size, `first`/`second` the two trims' tight boxes, `touched` how
-/// many image edges the subject touches (the number of ones in EIX), `mask` the box around the mask,
-/// and `texture` how busy the content is outside that box (`optimizer::highpass_texture` over trim 1's
-/// box; only read for bars).
-pub fn decide(frame: (u32, u32), first: Rect, second: Option<Rect>, touched: usize, mask: Option<Rect>, texture: f32) -> (Decision, String) {
+/// many image edges the subject touches (the number of ones in EIX) and `mask` the box around the mask.
+pub fn decide(frame: (u32, u32), first: Rect, second: Option<Rect>, touched: usize, mask: Option<Rect>) -> (Decision, String) {
     let touching = touched > 0;
     let (w, h) = frame;
     let l = first.x;
@@ -71,13 +64,7 @@ pub fn decide(frame: (u32, u32), first: Rect, second: Option<Rect>, touched: usi
         if !even(p, q) {
             return (Decision::Keep, format!("{insets}: the two cut sides are {p} and {q} px, unequal, so this is backdrop round an off-centre subject, not padding"));
         }
-        if touched == 1 && texture <= config::T_TEXTURE_HIGHPASS {
-            return (Decision::Crop(first), format!("{insets}: bars on one axis, the subject touches one edge and the content is smooth (texture {texture:.1}), so the bars are dropped and R1 frames the content"));
-        }
-        if touched == 1 {
-            return (Decision::Centre(first), format!("{insets}: bars on one axis and the subject touches one edge, but the content is busy (texture {texture:.1}, above {}): stretching it would smear, so it is centred", config::T_TEXTURE_HIGHPASS));
-        }
-        return (Decision::Centre(first), format!("{insets}: bars on one axis and the subject touches {touched} edges, so the content is centred"));
+        return (Decision::Centre(first), format!("{insets}: bars on one axis and the subject touches {touched} edge(s), so the content is centred"));
     }
 
     if touching {
@@ -220,27 +207,19 @@ mod tests {
     }
 
     #[test]
-    fn white_bars_left_and_right_with_the_subject_on_one_edge_are_cropped_for_r1() {
+    fn white_bars_left_and_right_with_the_subject_on_one_edge_are_centred() {
         // 41: 1024x1024, bars 132 px each side, full height. Trim 2 moved it a little; that is not
-        // needed to know these are bars.
+        // needed to know these are bars. A lifestyle scene cannot be stretched, so it is centred.
         let first = r(132, 0, 760, 1024);
-        let (d, _) = decide((1024, 1024), first, Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952)), 0.0);
-        assert_eq!(d, Decision::Crop(first));
+        let (d, _) = decide((1024, 1024), first, Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952)));
+        assert_eq!(d, Decision::Centre(first));
     }
 
     #[test]
-    fn bars_top_and_bottom_are_cropped_even_with_a_sliver_missed_on_one_side() {
+    fn bars_top_and_bottom_are_centred_even_with_a_sliver_missed_on_one_side() {
         // 46: 193 px above and 212 below, and 14 px short on the right where the product is pale.
         let first = r(0, 193, 1010, 619);
-        let (d, _) = decide((1024, 1024), first, None, 1, None, 0.0);
-        assert_eq!(d, Decision::Crop(first));
-    }
-
-    #[test]
-    fn bars_round_a_busy_scene_are_centred_not_cropped() {
-        // 46: one edge touched, but the scene is a busy photo: R1's stretch would smear it.
-        let first = r(0, 193, 1010, 619);
-        let (d, _) = decide((1024, 1024), first, None, 1, None, config::T_TEXTURE_HIGHPASS + 1.0);
+        let (d, _) = decide((1024, 1024), first, None, 1, None);
         assert_eq!(d, Decision::Centre(first));
     }
 
@@ -248,7 +227,7 @@ mod tests {
     fn bars_with_the_subject_on_two_edges_are_centred_with_padding() {
         // 35: 1024x1024, bars 30 and 27 px either side, subject on the top and the bottom edge.
         let first = r(30, 0, 967, 1024);
-        let (d, _) = decide((1024, 1024), first, None, 2, None, 0.0);
+        let (d, _) = decide((1024, 1024), first, None, 2, None);
         assert_eq!(d, Decision::Centre(first));
     }
 
@@ -256,14 +235,14 @@ mod tests {
     fn unequal_cuts_are_backdrop_round_an_off_centre_subject_not_bars() {
         // 19: plain grey backdrop, 127 px cut on the left and 6 on the right, subject on the bottom edge.
         // R1 frames it as usual: bottom pinned, subject centred, margin on top.
-        let (d, _) = decide((768, 1024), r(127, 16, 635, 1008), None, 1, Some(r(129, 60, 474, 964)), 0.0);
+        let (d, _) = decide((768, 1024), r(127, 16, 635, 1008), None, 1, Some(r(129, 60, 474, 964)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn a_subject_that_touches_nothing_is_not_centred_on_bars() {
         // Bars, but EIX is 0000: not this rule's business.
-        let (d, _) = decide((1024, 1024), r(132, 0, 760, 1024), None, 0, Some(r(300, 100, 300, 800)), 0.0);
+        let (d, _) = decide((1024, 1024), r(132, 0, 760, 1024), None, 0, Some(r(300, 100, 300, 800)));
         assert!(!matches!(d, Decision::Centre(_)));
     }
 
@@ -271,7 +250,7 @@ mod tests {
     fn a_thin_ring_round_a_square_picture_is_peeled() {
         // 45: a dark frame ~1% thick all round; the product sits in the middle of the inside.
         let first = r(9, 15, 1008, 1003);
-        let (d, why) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 880)), 0.0);
+        let (d, why) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 880)));
         assert_eq!(d, Decision::Peel(first), "{why}");
     }
 
@@ -279,41 +258,41 @@ mod tests {
     fn a_floating_product_whose_box_is_the_product_is_left_alone() {
         // Plain backdrop, product in the middle, trim 1's box is the mask (within the tolerance).
         let first = r(300, 300, 400, 400);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(304, 298, 394, 402)), 0.0);
+        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(304, 298, 394, 402)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn a_ring_is_not_peeled_when_trim_two_found_another_layer() {
         let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880)), 0.0);
+        let (d, _) = decide((1024, 1024), first, Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn a_box_that_is_not_square_is_not_peeled() {
         let first = r(9, 15, 1008, 700);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 500)), 0.0);
+        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 500)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn a_mask_reaching_outside_the_box_means_the_box_cut_the_product() {
         let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(0, 130, 400, 880)), 0.0);
+        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(0, 130, 400, 880)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn nothing_cut_means_nothing_to_do() {
-        let (d, _) = decide((1024, 1024), r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900)), 0.0);
+        let (d, _) = decide((1024, 1024), r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900)));
         assert_eq!(d, Decision::Keep);
     }
 
     #[test]
     fn a_subject_on_an_edge_with_trim_on_both_axes_is_left_to_r1() {
         // An ordinary studio shot that bleeds off the bottom: backdrop trimmed on three sides.
-        let (d, _) = decide((1024, 1024), r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934)), 0.0);
+        let (d, _) = decide((1024, 1024), r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934)));
         assert_eq!(d, Decision::Keep);
     }
 
