@@ -8,7 +8,7 @@ the only committed file, and it is what makes the folder exist in a fresh clone.
 
 ```rust
 const MODEL_DIR:  &str = "models";
-const MODEL_FILE: &str = "birefnet_lite_384_int8.onnx";
+const MODEL_FILE: &str = "birefnet_lite_512.onnx";
 ```
 
 `MODEL_FILE` is a bare filename resolved inside this folder. It is the single

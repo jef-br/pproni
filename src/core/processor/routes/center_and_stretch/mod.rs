@@ -63,26 +63,63 @@ pub struct Silhouette {
 
 impl Silhouette {
     pub fn from_mask(mask: &Mask, orig_w: u32, orig_h: u32, grow: u32) -> Silhouette {
-        let fx = mask.width as f32 / orig_w.max(1) as f32;
-        let fy = mask.height as f32 / orig_h.max(1) as f32;
-        let mut rows: Vec<Option<(i64, i64)>> = vec![None; orig_h as usize];
-        let mut cols: Vec<Option<(i64, i64)>> = vec![None; orig_w as usize];
-        for oy in 0..orig_h {
-            let my = (((oy as f32 + 0.5) * fy) as u32).min(mask.height.saturating_sub(1));
-            for ox in 0..orig_w {
-                let mx = (((ox as f32 + 0.5) * fx) as u32).min(mask.width.saturating_sub(1));
-                if mask.get(mx, my) {
-                    let (x, y) = (ox as i64, oy as i64);
-                    let r = &mut rows[oy as usize];
-                    *r = Some(r.map_or((x, x), |(lo, hi)| (lo.min(x), hi.max(x))));
-                    let c = &mut cols[ox as usize];
-                    *c = Some(c.map_or((y, y), |(lo, hi)| (lo.min(y), hi.max(y))));
-                }
-            }
-        }
+        let (rows, cols) = spans_of(mask, orig_w, orig_h);
         let slope = config::R1_BAND_SLOPE_PX_PER_LINE as i64;
         Silhouette { row_x: grow_spans(&rows, grow as i64, slope), col_y: grow_spans(&cols, grow as i64, slope) }
     }
+}
+
+/// Per row and per column of the original, the span `(lo, hi)` (inclusive) the mask covers, or `None`
+/// where it covers nothing.
+///
+/// The mask is at most `WORKING_SIZE` on its longest side and the original can be many times that, so
+/// the mask is read once, in its own pixels, and the answer is carried over to the original's lines.
+/// An original pixel `ox` reads mask column `mx_of(ox)`, which never goes down as `ox` goes up, so the
+/// originals that read one mask column are one unbroken run: a mask row's span is the first original
+/// of the run of its lowest set column and the last original of the run of its highest.
+fn spans_of(mask: &Mask, orig_w: u32, orig_h: u32) -> (Vec<Option<(i64, i64)>>, Vec<Option<(i64, i64)>>) {
+    let (mw, mh) = (mask.width as usize, mask.height as usize);
+    if mw == 0 || mh == 0 {
+        return (vec![None; orig_h as usize], vec![None; orig_w as usize]);
+    }
+    let fx = mask.width as f32 / orig_w.max(1) as f32;
+    let fy = mask.height as f32 / orig_h.max(1) as f32;
+    let mask_x = |ox: u32| (((ox as f32 + 0.5) * fx) as u32).min(mask.width.saturating_sub(1)) as usize;
+    let mask_y = |oy: u32| (((oy as f32 + 0.5) * fy) as u32).min(mask.height.saturating_sub(1)) as usize;
+
+    // The run of original columns (rows) that reads each mask column (row): first and last.
+    let mut x_run = vec![(i64::MAX, i64::MIN); mw];
+    for ox in 0..orig_w {
+        let run = &mut x_run[mask_x(ox)];
+        *run = (run.0.min(ox as i64), run.1.max(ox as i64));
+    }
+    let mut y_run = vec![(i64::MAX, i64::MIN); mh];
+    for oy in 0..orig_h {
+        let run = &mut y_run[mask_y(oy)];
+        *run = (run.0.min(oy as i64), run.1.max(oy as i64));
+    }
+
+    // Lowest and highest set mask column of every mask row, and set row of every mask column. Only
+    // mask pixels some original pixel reads count (all of them, unless the mask is the larger one).
+    let mut row_set: Vec<Option<(usize, usize)>> = vec![None; mh];
+    let mut col_set: Vec<Option<(usize, usize)>> = vec![None; mw];
+    for (y, line) in mask.data.chunks_exact(mw).enumerate().take(mh) {
+        if y_run[y].0 == i64::MAX {
+            continue;
+        }
+        for (x, &v) in line.iter().enumerate() {
+            if v != 0 && x_run[x].0 != i64::MAX {
+                let r = &mut row_set[y];
+                *r = Some(r.map_or((x, x), |(lo, hi)| (lo.min(x), hi.max(x))));
+                let c = &mut col_set[x];
+                *c = Some(c.map_or((y, y), |(lo, hi)| (lo.min(y), hi.max(y))));
+            }
+        }
+    }
+
+    let rows = (0..orig_h).map(|oy| row_set[mask_y(oy)].map(|(lo, hi)| (x_run[lo].0, x_run[hi].1))).collect();
+    let cols = (0..orig_w).map(|ox| col_set[mask_x(ox)].map(|(lo, hi)| (y_run[lo].0, y_run[hi].1))).collect();
+    (rows, cols)
 }
 
 /// Grow per-line spans `(lo, hi)` (inclusive) by a disc of radius `r` and return them as `[lo, hi)`.
@@ -469,5 +506,49 @@ mod tests {
         let expected = extend::reframe_to_square(&trimmed, subject_into(bbox, keep));
         assert_eq!(out, expected, "a textured scene must reframe, not R1-stretch");
         assert_eq!(out.width(), out.height(), "reframed output is square");
+    }
+
+    /// What `spans_of` replaced: ask the mask about every original pixel. Kept as the reference.
+    fn spans_by_asking_every_pixel(mask: &Mask, orig_w: u32, orig_h: u32) -> (Vec<Option<(i64, i64)>>, Vec<Option<(i64, i64)>>) {
+        let fx = mask.width as f32 / orig_w.max(1) as f32;
+        let fy = mask.height as f32 / orig_h.max(1) as f32;
+        let mut rows: Vec<Option<(i64, i64)>> = vec![None; orig_h as usize];
+        let mut cols: Vec<Option<(i64, i64)>> = vec![None; orig_w as usize];
+        for oy in 0..orig_h {
+            let my = (((oy as f32 + 0.5) * fy) as u32).min(mask.height.saturating_sub(1));
+            for ox in 0..orig_w {
+                let mx = (((ox as f32 + 0.5) * fx) as u32).min(mask.width.saturating_sub(1));
+                if mask.get(mx, my) {
+                    let (x, y) = (ox as i64, oy as i64);
+                    let r = &mut rows[oy as usize];
+                    *r = Some(r.map_or((x, x), |(lo, hi)| (lo.min(x), hi.max(x))));
+                    let c = &mut cols[ox as usize];
+                    *c = Some(c.map_or((y, y), |(lo, hi)| (lo.min(y), hi.max(y))));
+                }
+            }
+        }
+        (rows, cols)
+    }
+
+    #[test]
+    fn reading_the_mask_once_gives_the_spans_of_asking_every_pixel() {
+        // Masks of every kind against originals of every ratio, including a mask larger than the
+        // original and one with no pixel set.
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for (mw, mh, ow, oh) in [(10u32, 10u32, 20u32, 20u32), (13, 7, 100, 61), (64, 48, 64, 48), (1, 1, 9, 9), (40, 30, 17, 11), (50, 80, 333, 517), (7, 9, 7, 300)] {
+            for density in [0u64, 2, 30, 100] {
+                let data = (0..mw * mh).map(|_| if next() % 100 < density { 255 } else { 0 }).collect();
+                let mask = Mask { width: mw, height: mh, data };
+                assert_eq!(spans_of(&mask, ow, oh), spans_by_asking_every_pixel(&mask, ow, oh), "mask {mw}x{mh}, original {ow}x{oh}, density {density}");
+            }
+        }
+        let empty = Mask { width: 0, height: 0, data: Vec::new() };
+        assert_eq!(spans_of(&empty, 5, 4), spans_by_asking_every_pixel(&empty, 5, 4));
     }
 }

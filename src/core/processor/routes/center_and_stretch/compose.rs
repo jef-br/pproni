@@ -46,8 +46,14 @@ pub fn compose(src: &RgbImage, plan: &SquarePlan, silhouette: &super::Silhouette
     // overhang on the left and on the top ends.
     let mut canvas = RgbImage::new(plan.side, plan.side);
     let (ox, oy) = (over.left as i64, over.top as i64);
-    let real_pixels = image::imageops::crop_imm(src, real.x, real.y, real.w, real.h).to_image();
-    image::imageops::replace(&mut canvas, &real_pixels, ox, oy);
+    // One copy per row, straight from `src`. The real part always lies inside the square (that is what
+    // `real_region` is), so no row needs clipping.
+    let (canvas_row, src_row, run) = (plan.side as usize * 3, w as usize * 3, real.w as usize * 3);
+    for ry in 0..real.h as usize {
+        let from = (real.y as usize + ry) * src_row + real.x as usize * 3;
+        let to = (oy as usize + ry) * canvas_row + ox as usize * 3;
+        canvas.as_mut()[to..to + run].copy_from_slice(&src.as_raw()[from..from + run]);
+    }
     let (rw, rh) = (real.w as i64, real.h as i64);
 
     // Product band per line, in canvas coordinates. Rows: the real rows only. Columns: every column
@@ -116,7 +122,15 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
     let outward = |edge: i64, d: i64| if low_side { edge - 1 - d } else { edge + d };
 
     // The photo's own grain along this edge, measured on the real source before anything is stretched.
-    let grain = edge_grain(canvas, job, &at, low_side);
+    // Only a line with no background to stretch uses it (`borrow_neighbour_lines`), so it is measured
+    // only when there is one. That has to be known now: the loop below writes over the source.
+    let has_bled_line = job.bands.iter().any(|&(lo, hi)| {
+        let a = lo.clamp(r0, r1);
+        let b = hi.max(a).clamp(r0, r1);
+        let (total, n) = if low_side { (a, a - r0) } else { (side - b, r1 - b) };
+        total > 0 && n <= 0
+    });
+    let grain = if has_bled_line { edge_grain(canvas, job, &at, low_side) } else { [0.0; 3] };
 
     // Per line: where the band starts on this side, and how long the segment and its source are.
     let mut seg_len = vec![0i64; job.bands.len()];

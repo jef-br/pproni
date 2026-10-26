@@ -293,3 +293,8 @@ pub fn preflight() -> Result<(), String> {
     Ok(())
 }
 
+/// Where the classifier runs — a graphics card's name, or "CPU" — once [`preflight`] has built it.
+pub fn backend() -> String {
+    model().map(|m| m.backend().to_owned()).unwrap_or_default()
+}
+

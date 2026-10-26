@@ -21,6 +21,9 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
 ] }
 jpeg-encoder = "0.6"
+# SIMD resizer for the working-resolution copy (`preprocessor::downscale_to_working`). Its own `rayon`
+# feature stays off: the parallelism lives one level up, one image per worker (`app::batch`).
+fast_image_resize = "5"
 rayon = "1"
 tintbox = "0.4.0"
 
@@ -56,6 +59,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_Globalization",
     "Win32_System_Com",
     "Win32_System_Console",
+    # PProni-GPU: pre-load the embedded DirectML.dll. (The graphics adapter list uses DXGI, which
+    # this windows-sys version has no bindings for - see shot_classifier/gpu_adapters.rs.)
+    "Win32_System_LibraryLoader",
 ] }
 
 # Windows resources (the exe icon). Build-time only; see build.rs.

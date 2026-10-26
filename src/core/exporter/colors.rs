@@ -60,7 +60,6 @@ pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
         .then(|| dominant_bin(&fg_hist))
         .flatten()
         .map(|top| {
-            let blob = cluster_bins(top);
             // Per-channel value histograms over the blob's pixels, for a
             // frequency-weighted median that shrugs off folds/shadows.
             let mut chan = [[0u64; 256]; 3];
@@ -70,7 +69,7 @@ pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
                         continue;
                     }
                     let p = image.get_pixel(x, y).0;
-                    if blob.contains(&bin(p[0] >> 3, p[1] >> 3, p[2] >> 3)) {
+                    if in_cluster(top, p) {
                         for c in 0..3 {
                             chan[c][p[c] as usize] += 1;
                         }
@@ -150,6 +149,15 @@ fn cluster_bins(top: usize) -> HashSet<usize> {
     set
 }
 
+/// Is colour `p` in the blob around bin `top`? The same question as `cluster_bins(top)` containing
+/// `p`'s bin, answered without building the set: a bin is in the blob when each of its three channels
+/// is within one step of `top`'s (the clamp at 0 and 31 only drops bins that do not exist).
+fn in_cluster(top: usize, p: [u8; 3]) -> bool {
+    let (tr, tg, tb) = ((top >> 10) & 31, (top >> 5) & 31, top & 31);
+    let near = |t: usize, v: u8| t.abs_diff((v >> 3) as usize) <= 1;
+    near(tr, p[0]) && near(tg, p[1]) && near(tb, p[2])
+}
+
 /// Fraction of the region occupied by the dominant colour blob, and that
 /// blob's mean RGB. `None` if the region is empty.
 fn dominant_cluster(h: &Hist) -> Option<(f64, [u8; 3])> {
@@ -194,6 +202,29 @@ mod tests {
 
         assert_eq!(colors.bgc.as_deref(), Some("ffffff"));
         assert_eq!(colors.fgc, None);
+    }
+
+    /// The distance test is the set lookup it replaced, for bins on the edges of the cube as well as the
+    /// middle.
+    #[test]
+    fn in_cluster_matches_the_cluster_set() {
+        let edges = [0usize, 1, 2, 15, 30, 31];
+        for &tr in &edges {
+            for &tg in &edges {
+                for &tb in &edges {
+                    let top = bin(tr as u8, tg as u8, tb as u8);
+                    let set = cluster_bins(top);
+                    for r in 0..32u8 {
+                        for g in 0..32u8 {
+                            for b in 0..32u8 {
+                                let p = [r << 3 | 5, g << 3 | 2, b << 3 | 7];
+                                assert_eq!(in_cluster(top, p), set.contains(&bin(r, g, b)), "top {tr},{tg},{tb} colour {r},{g},{b}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

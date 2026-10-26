@@ -14,10 +14,13 @@
 //! - Output `output_image`: `[1, 1, S, S]` float32 — raw logits; apply
 //!   sigmoid, threshold, resize back to the source image size.
 //!
-//! Note: BiRefNet's decoder uses deformable convolutions. Export with
-//! ONNX opset >= 19 so they become a single native `DeformConv` op
-//! (needs ONNX Runtime >= 1.22) rather than a `GatherND` decomposition
-//! that allocates enormous intermediates.
+//! Note: BiRefNet's decoder uses deformable convolutions. A stock export makes them a single native
+//! `DeformConv` op, which DirectML cannot run. On this branch the shipped model has those 20 nodes
+//! rewritten as `GridSample` + `Conv` (same weights, same maths — masks match the original to
+//! float rounding), so the one embedded model runs on a graphics card or on the CPU.
+//!
+//! Where it runs, best first: a real graphics card (most dedicated video memory), then a
+//! shared-memory one, then the CPU — see [`BiRefNetModel::build`] and [`BiRefNetModel::backend`].
 //!
 //! To slot into the existing gate/refine pipeline unchanged, the whole-
 //! image mask is wrapped as a single [`Instance`] whose `bbox` is the
@@ -26,11 +29,15 @@
 //! only cares about the mask from here on.
 
 use super::geometry::Rect;
+use super::gpu_adapters;
 use super::segmentation::{Instance, Mask, SegmentationModel};
 use crate::core::trace;
 use image::{imageops::FilterType, RgbImage};
+use ort::execution_providers::DirectMLExecutionProvider;
+use ort::session::builder::SessionBuilder;
 use ort::session::Session;
 use ort::value::Tensor;
+use std::sync::Mutex;
 
 /// The BiRefNet weights, encrypted at rest and compiled into the executable.
 ///
@@ -68,6 +75,12 @@ pub struct BiRefNetModel {
     config: BiRefNetConfig,
     /// First stage number this model's debug-trace images use — see `core::trace::stage`.
     trace_base: u8,
+    /// Where the session runs, for the operator: the graphics card's name, or "CPU".
+    backend: String,
+    /// Present only on a graphics card: DirectML takes one `run` at a time, so the batch's workers
+    /// queue here. The card does one image at a time anyway; the workers' own CPU work (resizing,
+    /// the mask upsample, everything after) still overlaps with it.
+    gpu_gate: Option<Mutex<()>>,
 }
 
 impl BiRefNetModel {
@@ -100,7 +113,7 @@ impl BiRefNetModel {
     /// graph, which is fatal for the run — see `core::preflight`. Call [`Self::init_runtime`] first.
     pub fn load(config: BiRefNetConfig) -> Result<Self, String> {
         let model = super::cipher::decrypt(ENC_MODEL, &MODEL_KEY, &MODEL_NONCE);
-        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_memory(&model)).map_err(|e| e.to_string())
+        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_memory(&model))
     }
 
     /// Loads a model from disk instead of the embedded one.
@@ -115,15 +128,50 @@ impl BiRefNetModel {
         if !model.is_file() {
             return Err(format!("BiRefNet model not found at {}", model.display()));
         }
-        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_file(model)).map_err(|e| e.to_string())
+        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_file(model))
     }
 
-    /// The session settings both loaders share; only the source of the graph differs.
+    /// Picks where the model runs, best first: graphics cards in order of dedicated video memory
+    /// (a real card before a shared-memory one), then the CPU.
+    ///
+    /// A card counts as soon as a session starts on it; nothing is run to prove it works. If every
+    /// card fails to start, or there is none, the CPU session is built; only a failure of that one
+    /// is an error.
     fn build(
         config: BiRefNetConfig,
         trace_base: u8,
-        commit: impl FnOnce(ort::session::builder::SessionBuilder) -> ort::Result<Session>,
-    ) -> ort::Result<Self> {
+        commit: impl Fn(SessionBuilder) -> ort::Result<Session>,
+    ) -> Result<Self, String> {
+        let adapters = gpu_adapters::ranked();
+        let mut last_gpu_error = None;
+        for adapter in &adapters {
+            match Self::session(Some(adapter.device_id), &commit) {
+                Ok(session) => {
+                    return Ok(BiRefNetModel {
+                        session,
+                        config,
+                        trace_base,
+                        backend: adapter.name.clone(),
+                        gpu_gate: Some(Mutex::new(())),
+                    });
+                }
+                Err(e) => last_gpu_error = Some(format!("{}: {e}", adapter.name)),
+            }
+        }
+
+        let session = Self::session(None, &commit).map_err(|e| e.to_string())?;
+        let backend = match last_gpu_error {
+            Some(why) => format!("CPU (no graphics card worked — {why})"),
+            None => "CPU (no graphics card found)".to_owned(),
+        };
+        Ok(BiRefNetModel { session, config, trace_base, backend, gpu_gate: None })
+    }
+
+    /// One session: on the graphics card `device_id` names, or on the CPU when `None`.
+    fn session(
+        device_id: Option<i32>,
+        commit: &impl Fn(SessionBuilder) -> ort::Result<Session>,
+    ) -> ort::Result<Session> {
         // One intra-op thread on purpose: `app::batch` fans images across cores
         // with rayon, so the parallelism lives one level up. Peak memory tracks
         // that fan-out — roughly 400MB of activations per concurrent worker —
@@ -131,34 +179,58 @@ impl BiRefNetModel {
         // at Level1, Level2 and Level3 alike. An earlier comment here blamed
         // Level3 for an OOM during session init; that was a 4GB CI container,
         // not a property of the graph.
-        let builder = Session::builder()?
+        let mut builder = Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_memory_pattern(false)?
             .with_intra_threads(1)?;
-        let session = commit(builder)?;
-        Ok(BiRefNetModel { session, config, trace_base })
+        if let Some(id) = device_id {
+            builder = builder
+                // DirectML's graph fusion is switched off: with it on, the NVIDIA card hung ("device
+                // removed") on the first run of this model; with it off, NVIDIA and Intel both run
+                // it correctly, and NVIDIA is as fast as before.
+                .with_config_entry("ep.dml.disable_graph_fusion", "1")?
+                // `error_on_failure`: a card that cannot be set up must be an `Err` here so the
+                // next candidate is tried, not a silent drop to the CPU inside the session.
+                .with_execution_providers([DirectMLExecutionProvider::default()
+                    .with_device_id(id)
+                    .build()
+                    .error_on_failure()])?;
+        }
+        commit(builder)
     }
 
-    /// Reads the model's declared NCHW input side. Dynamic axes come back as `-1`, which would
-    /// otherwise become a ~4-billion-pixel allocation, so they are rejected here with a message
-    /// naming the fix rather than dying in the allocator.
+    /// Where this model runs: the graphics card's name, or "CPU" (with the reason when a card
+    /// was tried and rejected).
+    pub fn backend(&self) -> &str {
+        &self.backend
+    }
+
+    /// Reads the model's declared NCHW input side — see [`input_dims`].
     fn input_size(&self) -> Result<(u32, u32), String> {
-        let dims = match &self.session.inputs[0].input_type {
-            ort::value::ValueType::Tensor { dimensions, .. } => dimensions,
-            other => return Err(format!("unexpected BiRefNet input type: {other:?}")),
-        };
-        if dims.len() != 4 {
-            return Err(format!("expected a 4-D NCHW input, got {} dims", dims.len()));
-        }
-        if dims[2] <= 0 || dims[3] <= 0 {
-            return Err(format!(
-                "model declares a dynamic input size ({}x{}); re-export at a fixed side",
-                dims[3], dims[2]
-            ));
-        }
-        Ok((dims[3] as u32, dims[2] as u32)) // NCHW: width, height
+        input_dims(&self.session)
     }
 }
+
+/// Reads a session's declared NCHW input side. Dynamic axes come back as `-1`, which would
+/// otherwise become a ~4-billion-pixel allocation, so they are rejected here with a message
+/// naming the fix rather than dying in the allocator.
+fn input_dims(session: &Session) -> Result<(u32, u32), String> {
+    let dims = match &session.inputs[0].input_type {
+        ort::value::ValueType::Tensor { dimensions, .. } => dimensions,
+        other => return Err(format!("unexpected BiRefNet input type: {other:?}")),
+    };
+    if dims.len() != 4 {
+        return Err(format!("expected a 4-D NCHW input, got {} dims", dims.len()));
+    }
+    if dims[2] <= 0 || dims[3] <= 0 {
+        return Err(format!(
+            "model declares a dynamic input size ({}x{}); re-export at a fixed side",
+            dims[3], dims[2]
+        ));
+    }
+    Ok((dims[3] as u32, dims[2] as u32)) // NCHW: width, height
+}
+
 
 /// The logit a probability corresponds to — the inverse of a sigmoid.
 ///
@@ -195,10 +267,13 @@ impl SegmentationModel for BiRefNetModel {
 
         let input_values =
             ort::inputs!["input_image" => input].map_err(|e| format!("build session inputs: {e}"))?;
-        let outputs = self
-            .session
-            .run(input_values)
-            .map_err(|e| format!("BiRefNet inference: {e}"))?;
+        // On a graphics card the workers take turns for the run itself; the lock is let go before
+        // the output is read, so the mask upsample below overlaps with the next worker's run.
+        let outputs = {
+            let _turn = self.gpu_gate.as_ref().map(|gate| gate.lock().unwrap_or_else(|e| e.into_inner()));
+            self.session.run(input_values)
+        }
+        .map_err(|e| format!("BiRefNet inference: {e}"))?;
 
         // Borrow the runtime's own buffer rather than collecting it into a
         // fresh Vec — the output plane is a megabyte of f32 per image, and

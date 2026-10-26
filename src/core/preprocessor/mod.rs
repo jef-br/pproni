@@ -18,10 +18,12 @@ pub mod optimizer;
 use super::config::WORKING_SIZE;
 use super::shot_classifier::geometry::Rect;
 use super::trace;
+use fast_image_resize as fir;
 use image::{DynamicImage, ImageReader, RgbImage};
 use std::path::Path;
 use tintbox::format::decode::TYPE_RGB_8;
 use tintbox::profile::{virtuals::build_srgb_profile, ColorSpace, Profile, RenderingIntent};
+use tintbox::sig::Signature;
 use tintbox::transform::Transform;
 
 /// A decoded, correctly-oriented image plus whatever colour profile it declared.
@@ -112,8 +114,12 @@ pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
     // downstream pixel math runs on it. An untagged image, or one already tagged sRGB, is left
     // untouched.
     if let Some(icc) = decoded.icc_profile.as_deref() {
-        original = convert_to_srgb(original, icc);
-        trace::note(|| "ICC profile detected and converted to sRGB".into());
+        if is_srgb_profile(icc) {
+            trace::note(|| "ICC profile is already sRGB: colours left as-is".into());
+        } else {
+            original = convert_to_srgb(original, icc);
+            trace::note(|| "ICC profile detected and converted to sRGB".into());
+        }
     } else {
         trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
@@ -193,12 +199,36 @@ fn downscale_to_working(original: &RgbImage) -> RgbImage {
     let scale = WORKING_SIZE as f64 / longest as f64;
     let target_w = ((w as f64 * scale).round() as u32).max(1);
     let target_h = ((h as f64 * scale).round() as u32).max(1);
-    image::imageops::resize(
-        original,
-        target_w,
-        target_h,
-        image::imageops::FilterType::Triangle,
-    )
+    // Triangle filter (called "Bilinear" by this crate). The inputs cannot be refused: the buffer is an
+    // `RgbImage`'s own, the pixel type matches it, and both sizes are at least 1.
+    let source = fir::images::ImageRef::new(w, h, original.as_raw(), fir::PixelType::U8x3)
+        .expect("an RgbImage's buffer matches its size");
+    let mut target = fir::images::Image::new(target_w, target_h, fir::PixelType::U8x3);
+    let options = fir::ResizeOptions::new().resize_alg(fir::ResizeAlg::Convolution(fir::FilterType::Bilinear));
+    fir::Resizer::new()
+        .resize(&source, &mut target, &options)
+        .expect("same pixel type, sizes of at least 1");
+    RgbImage::from_raw(target_w, target_h, target.into_vec()).expect("the target buffer holds target_w x target_h pixels")
+}
+
+// Whether `icc` is an RGB profile that names itself sRGB. Converting such an image into sRGB changes
+// no pixel, and at full resolution it is the slowest step before the model, so it is skipped. Decided
+// by the name in the profile's `desc` tag, which comes in two encodings: ASCII, or UTF-16 big-endian.
+fn is_srgb_profile(icc: &[u8]) -> bool {
+    let Ok(profile) = Profile::open(icc) else {
+        return false;
+    };
+    if profile.header().color_space != ColorSpace::Rgb {
+        return false;
+    }
+    let Ok(desc) = profile.read_tag_raw(Signature::from_bytes(*b"desc")) else {
+        return false;
+    };
+    let ascii = desc.windows(4).any(|w| w.eq_ignore_ascii_case(b"srgb"));
+    let utf16 = desc
+        .windows(8)
+        .any(|w| w[0] == 0 && w[2] == 0 && w[4] == 0 && w[6] == 0 && [w[1], w[3], w[5], w[7]].eq_ignore_ascii_case(b"srgb"));
+    ascii || utf16
 }
 
 // Colour-manage `rgb` from its embedded ICC profile into sRGB via tintbox (a pure-Rust,
@@ -260,6 +290,21 @@ mod tests {
             prep.working.get_pixel(25, 25),
             "model_input must be the colour-balanced copy"
         );
+    }
+
+    /// A profile that names itself sRGB is skipped; one with another name is not; bytes that are not a
+    /// profile are not.
+    #[test]
+    fn a_profile_is_srgb_by_its_name() {
+        let srgb = crate::core::exporter::icc::srgb_profile();
+        assert!(is_srgb_profile(&srgb));
+
+        let at = srgb.windows(4).position(|w| w == b"sRGB").expect("the profile names itself");
+        let mut renamed = srgb.clone();
+        renamed[at..at + 4].copy_from_slice(b"Adob");
+        assert!(!is_srgb_profile(&renamed));
+
+        assert!(!is_srgb_profile(b"not a profile"));
     }
 
     /// A frame with nothing but backdrop is refused, so the batch leaves the file where it is.

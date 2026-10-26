@@ -26,6 +26,7 @@ pub mod birefnet;
 mod cipher;
 pub mod gate;
 pub mod geometry;
+mod gpu_adapters;
 pub mod refine;
 pub mod sampling;
 pub mod segmentation;

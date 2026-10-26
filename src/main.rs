@@ -28,6 +28,8 @@ fn main() {
                 .unwrap_or_else(|| std::path::Path::new("."))
                 .join("PPRONI-BACKUP"),
         };
+        // Dev/test path only: the desktop screens clear the console, so the backend is not shown there.
+        eprintln!("classifier runs on: {}", pproni::core::backend());
         // English: this path is piped, so the bar — and the only localized string it would
         // reach for — is disabled anyway.
         let summary = app::batch::run(&input, &output, &backup, &[], app::i18n::Lang::En);

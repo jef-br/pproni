@@ -28,7 +28,8 @@ const MODEL_DIR: &str = "models";
 /// one of these lines must be live, and leaving both live is a build error
 /// (E0428, `MODEL_FILE` defined twice) rather than a silent wrong model.
 // const MODEL_FILE: &str = "birefnet_lite_384_int8.onnx"; // JB: Homemade optimized-for-speed model. Untested performance.
-const MODEL_FILE: &str = "birefnet_lite_512.onnx"; // JB: Proven to work. Slower & bigger.
+// const MODEL_FILE: &str = "birefnet_lite_512.onnx"; // JB: Proven to work. Slower & bigger. Native DeformConv: CPU / CUDA only.
+const MODEL_FILE: &str = "birefnet_512_nodeform_op19.onnx"; // PProni-GPU: same weights, DeformConv rewritten as GridSample + Conv so DirectML can run it.
 
 fn main() {
     #[cfg(windows)]

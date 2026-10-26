@@ -21,15 +21,27 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// The ONNX Runtime library, compiled into the executable.
+/// The DirectML build of ONNX Runtime, compiled into the executable.
 ///
 /// Gitignored and expected at the repo root, exactly like the `.onnx`
 /// weights: a missing file is a *build* failure naming it, not a runtime
-/// surprise.
+/// surprise. This is the build that can run the model on a graphics card;
+/// it also runs it on the CPU, so it is the only runtime Pproni carries.
 static DYLIB_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime.dll"));
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime-directml.dll"));
+
+/// The DirectML library the runtime above hands the model to. Extracted beside it.
+static DIRECTML_BYTES: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/DirectML.dll"));
 
 const DYLIB_NAME: &str = "pproni.dll";
+/// DirectML is looked up by this exact name, so it keeps it.
+const DIRECTML_NAME: &str = "DirectML.dll";
+
+/// Every file the runtime needs on disk, as (name, bytes).
+fn embedded_files() -> [(&'static str, &'static [u8]); 2] {
+    [(DYLIB_NAME, DYLIB_BYTES), (DIRECTML_NAME, DIRECTML_BYTES)]
+}
 
 /// Path to an `onnxruntime.dll` on disk that `ort` can load.
 ///
@@ -44,11 +56,35 @@ pub fn onnxruntime_dylib() -> Result<PathBuf, String> {
             return Ok(p);
         }
     }
-    extract_embedded()
+    let dylib = extract_embedded()?;
+    if let Some(dir) = dylib.parent() {
+        preload_directml(dir);
+    }
+    Ok(dylib)
 }
 
-/// Write the embedded library to `<base>/pproni-<tag>/pproni.dll`,
-/// reusing it if a correctly sized copy is already there.
+/// Loads our `DirectML.dll` into the process by full path, before the runtime asks for it by name.
+///
+/// Windows hands a later request for the bare name `DirectML.dll` the copy already loaded, so the
+/// runtime gets the version we shipped, not whatever older one sits in System32. A failure is not
+/// fatal and not reported: the graphics-card route then fails to start and the model runs on the
+/// CPU. The handle is deliberately never released.
+#[cfg(windows)]
+fn preload_directml(dir: &Path) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
+
+    let wide: Vec<u16> = dir.join(DIRECTML_NAME).as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        LoadLibraryW(wide.as_ptr());
+    }
+}
+
+#[cfg(not(windows))]
+fn preload_directml(_dir: &Path) {}
+
+/// Write the embedded files to `<base>/pproni-<tag>/`, reusing any that are
+/// already there at the right size.
 ///
 /// `<base>` is the first of `%LOCALAPPDATA%`, the system temp dir, and the
 /// executable's own directory that we can actually write into — so a machine
@@ -57,21 +93,29 @@ fn extract_embedded() -> Result<PathBuf, String> {
     let subdir = format!("pproni-{}", cache_tag());
     let mut last_err = String::from("no writable directory for the ONNX Runtime");
 
-    for base in candidate_bases() {
+    'bases: for base in candidate_bases() {
         let dir = base.join(&subdir);
-        let dylib = dir.join(DYLIB_NAME);
 
-        if fs::metadata(&dylib).map(|m| m.len()).ok() == Some(DYLIB_BYTES.len() as u64) {
-            return Ok(dylib);
+        let present = |name: &str, bytes: &[u8]| {
+            fs::metadata(dir.join(name)).map(|m| m.len()).ok() == Some(bytes.len() as u64)
+        };
+        if embedded_files().iter().all(|(name, bytes)| present(name, bytes)) {
+            return Ok(dir.join(DYLIB_NAME));
         }
         if let Err(e) = fs::create_dir_all(&dir).map_err(|e| e.to_string()) {
             last_err = format!("create {}: {e}", dir.display());
             continue;
         }
-        match write_atomically(&dir, &dylib) {
-            Ok(()) => return Ok(dylib),
-            Err(e) => last_err = e,
+        for (name, bytes) in embedded_files() {
+            if present(name, bytes) {
+                continue;
+            }
+            if let Err(e) = write_atomically(&dir, name, bytes) {
+                last_err = e;
+                continue 'bases;
+            }
         }
+        return Ok(dir.join(DYLIB_NAME));
     }
     Err(last_err)
 }
@@ -93,24 +137,20 @@ fn candidate_bases() -> Vec<PathBuf> {
 /// Write to a uniquely named sibling, then rename into place. A half-written
 /// file never carries the final name, and concurrent Pproni processes racing on
 /// the same target are harmless — the loser sees the winner's finished file.
-fn write_atomically(dir: &Path, dest: &Path) -> Result<(), String> {
-    let tmp = dir.join(format!(
-        "{}.{}.tmp",
-        DYLIB_NAME,
-        std::process::id()
-    ));
+fn write_atomically(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let dest = dir.join(name);
+    let tmp = dir.join(format!("{}.{}.tmp", name, std::process::id()));
 
     let mut f = fs::File::create(&tmp)
         .map_err(|e| format!("create {}: {e}", tmp.display()))?;
-    f.write_all(DYLIB_BYTES)
+    f.write_all(bytes)
         .and_then(|_| f.sync_all())
         .map_err(|e| format!("write {}: {e}", tmp.display()))?;
     drop(f);
 
-    match fs::rename(&tmp, dest) {
+    match fs::rename(&tmp, &dest) {
         Ok(()) => Ok(()),
-        Err(_) if fs::metadata(dest).map(|m| m.len()).ok()
-            == Some(DYLIB_BYTES.len() as u64) =>
+        Err(_) if fs::metadata(&dest).map(|m| m.len()).ok() == Some(bytes.len() as u64) =>
         {
             let _ = fs::remove_file(&tmp);
             Ok(())
@@ -137,6 +177,7 @@ fn cache_tag() -> String {
         }
     };
     feed(&(n as u64).to_le_bytes());
+    feed(&(DIRECTML_BYTES.len() as u64).to_le_bytes());
     feed(&DYLIB_BYTES[..SAMPLE.min(n)]);
     feed(&DYLIB_BYTES[n / 2..(n / 2 + SAMPLE).min(n)]);
     feed(&DYLIB_BYTES[n.saturating_sub(SAMPLE)..]);
