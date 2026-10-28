@@ -363,24 +363,25 @@ fn borrow_neighbour_lines(
 mod tests {
     use super::*;
 
-    /// A `w x h` picture whose red channel is the column index, so a read shows where it came from.
-    fn ramp(w: u32, h: u32) -> RgbImage {
-        let mut img = RgbImage::new(w, h);
-        for y in 0..h {
-            for x in 0..w {
-                img.put_pixel(x, y, Rgb([x as u8, 100, 100]));
-            }
-        }
-        img
-    }
+    // /// A `w x h` picture whose red channel is the column index, so a read shows where it came from.
+    // fn ramp(w: u32, h: u32) -> RgbImage {
+    //     let mut img = RgbImage::new(w, h);
+    //     for y in 0..h {
+    //         for x in 0..w {
+    //             img.put_pixel(x, y, Rgb([x as u8, 100, 100]));
+    //         }
+    //     }
+    //     img
+    // }
 
     fn reds(seg: &[Rgb<u8>]) -> Vec<u8> {
         seg.iter().map(|p| p[0]).collect()
     }
 
     #[test]
-    fn the_stretch_is_even_and_ends_on_the_border_pixel() {
-        // Source value = distance from the product (0..60), covered over 120 pixels: one scale of 2.
+    fn the_stretch_is_even_invents_nothing_and_with_no_overhang_keeps_the_nearest_pixels() {
+        // Even, and it ends on the border pixel. Source value = distance from the product (0..60),
+        // covered over 120 pixels: one scale of 2.
         let seg: Vec<Rgb<u8>> = (0..60).map(|i| Rgb([i as u8, 0, 0])).collect();
         let out = reds(&stretch_line(&seg, 120));
         assert_eq!(out.len(), 120);
@@ -392,19 +393,15 @@ mod tests {
             let step = out[i + 10] as i32 - out[i] as i32;
             assert!((4..=6).contains(&step), "uneven stretch at {i}: advanced {step} in 10");
         }
-    }
 
-    #[test]
-    fn a_stretch_invents_nothing_and_stays_inside_the_range_of_the_source() {
+        // Invents nothing: it stays inside the range of the source.
         let seg: Vec<Rgb<u8>> = (0..7).map(|i| Rgb([100 + i as u8 * 3, 50, 200])).collect();
         for p in stretch_line(&seg, 40) {
             assert!((100..=118).contains(&p[0]), "outside the source range: {}", p[0]);
             assert_eq!((p[1], p[2]), (50, 200));
         }
-    }
 
-    #[test]
-    fn no_overhang_keeps_the_nearest_pixels_as_they_are() {
+        // No overhang: the nearest pixels are kept as they are.
         let seg: Vec<Rgb<u8>> = (0..10).map(|i| Rgb([i as u8, 0, 0])).collect();
         assert_eq!(reds(&stretch_line(&seg, 10)), (0..10).collect::<Vec<u8>>());
         assert_eq!(reds(&stretch_line(&seg, 4)), vec![0, 1, 2, 3]);
@@ -443,69 +440,106 @@ mod tests {
     }
 
     #[test]
-    fn a_line_with_no_background_fills_bgc_never_black() {
+    fn a_line_with_nothing_to_copy_is_filled_with_bgc_or_white_never_black() {
         // det3/det4: the product runs to the border, so the left side has no source at all. The old
         // code left that overhang black.
-        let mut canvas = RgbImage::from_pixel(20, 1, Rgb([200, 20, 20]));
-        for x in 0..5 {
-            canvas.put_pixel(x, 0, Rgb([0, 0, 0]));
-        }
-        let white = Rgb([255, 255, 255]);
-        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &[(5, 20)], real: (5, 20) };
-        stretch_edge(&mut canvas, &job, Some(white));
-        for x in 0..5u32 {
-            let p = *canvas.get_pixel(x, 0);
-            assert!(p.0 != [0, 0, 0], "overhang left black at {x}");
-            assert!(p.0.iter().all(|&c| c >= 240), "overhang not BGC-white at {x}: {p:?}");
-        }
-        for x in 5..20u32 {
-            assert_eq!(*canvas.get_pixel(x, 0), Rgb([200, 20, 20]), "product band altered at {x}");
-        }
-    }
-
-    #[test]
-    fn a_line_with_no_background_and_no_bgc_fills_white() {
-        let mut canvas = RgbImage::from_pixel(20, 1, Rgb([10, 90, 10]));
-        let job = EdgeJob { edge: Edge::Right, first: 0, bands: &[(0, 15)], real: (0, 15) };
-        stretch_edge(&mut canvas, &job, None);
-        for x in 15..20u32 {
-            assert!(canvas.get_pixel(x, 0).0.iter().all(|&c| c >= 240), "not white at {x}");
-        }
-    }
-
-    #[test]
-    fn a_bled_line_between_two_clean_lines_is_their_blend() {
-        // Three rows, real picture from column 4. Row 1 has no source (its band starts at 4), rows 0 and
-        // 2 have one (150 and 100). After the edge is done, row 1's overhang (columns 0..4) is halfway.
-        let mut canvas = RgbImage::new(12, 3);
-        for y in 0..3 {
-            for x in 4..12 {
-                canvas.put_pixel(x, y, Rgb([100 + (y == 0) as u8 * 50, 100, 100]));
+        {
+            let mut canvas = RgbImage::from_pixel(20, 1, Rgb([200, 20, 20]));
+            for x in 0..5 {
+                canvas.put_pixel(x, 0, Rgb([0, 0, 0]));
+            }
+            let white = Rgb([255, 255, 255]);
+            let job = EdgeJob { edge: Edge::Left, first: 0, bands: &[(5, 20)], real: (5, 20) };
+            stretch_edge(&mut canvas, &job, Some(white));
+            for x in 0..5u32 {
+                let p = *canvas.get_pixel(x, 0);
+                assert!(p.0 != [0, 0, 0], "overhang left black at {x}");
+                assert!(p.0.iter().all(|&c| c >= 240), "overhang not BGC-white at {x}: {p:?}");
+            }
+            for x in 5..20u32 {
+                assert_eq!(*canvas.get_pixel(x, 0), Rgb([200, 20, 20]), "product band altered at {x}");
             }
         }
-        let bands = [(8i64, 12i64), (4, 12), (8, 12)];
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 12) }, None);
-        for x in 0..4u32 {
-            assert_eq!(canvas.get_pixel(x, 1)[0], 125, "row 1 is the mean of rows 0 and 2 at {x}");
+
+        // No BGC either: white.
+        {
+            let mut canvas = RgbImage::from_pixel(20, 1, Rgb([10, 90, 10]));
+            let job = EdgeJob { edge: Edge::Right, first: 0, bands: &[(0, 15)], real: (0, 15) };
+            stretch_edge(&mut canvas, &job, None);
+            for x in 15..20u32 {
+                assert!(canvas.get_pixel(x, 0).0.iter().all(|&c| c >= 240), "not white at {x}");
+            }
         }
-        // Rows 0 and 2 are untouched by the borrow: their overhang is their own stretch.
-        assert_eq!(canvas.get_pixel(0, 0)[0], 150);
-        assert_eq!(canvas.get_pixel(0, 2)[0], 100);
+
+        // A fully bled edge keeps its flat fill: no neighbour to borrow from, so white.
+        {
+            let mut canvas = RgbImage::new(10, 3);
+            for y in 0..3 {
+                for x in 4..10 {
+                    canvas.put_pixel(x, y, Rgb([100, 100, 100]));
+                }
+            }
+            let bands = [(4i64, 10i64); 3];
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            for y in 0..3 {
+                for x in 0..4u32 {
+                    assert!(canvas.get_pixel(x, y).0.iter().all(|&c| c >= 240), "no neighbour, so white at ({x},{y})");
+                }
+            }
+        }
     }
 
     #[test]
-    fn a_run_of_bled_lines_ramps_from_the_clean_line_before_to_the_one_after() {
-        // Row 0 is 100, row 4 is 200, rows 1..4 are bled: 125, 150, 175, with no step in the middle.
-        let mut canvas = RgbImage::new(10, 5);
-        for y in 0..5 {
-            for x in 4..10 {
-                canvas.put_pixel(x, y, Rgb([if y == 0 { 100 } else { 200 }, 0, 0]));
+    fn a_bled_line_takes_the_clean_lines_round_it() {
+        // Between two clean lines it is their blend. Three rows, real picture from column 4. Row 1
+        // has no source (its band starts at 4), rows 0 and 2 have one (150 and 100). After the edge
+        // is done, row 1's overhang (columns 0..4) is halfway.
+        {
+            let mut canvas = RgbImage::new(12, 3);
+            for y in 0..3 {
+                for x in 4..12 {
+                    canvas.put_pixel(x, y, Rgb([100 + (y == 0) as u8 * 50, 100, 100]));
+                }
+            }
+            let bands = [(8i64, 12i64), (4, 12), (8, 12)];
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 12) }, None);
+            for x in 0..4u32 {
+                assert_eq!(canvas.get_pixel(x, 1)[0], 125, "row 1 is the mean of rows 0 and 2 at {x}");
+            }
+            // Rows 0 and 2 are untouched by the borrow: their overhang is their own stretch.
+            assert_eq!(canvas.get_pixel(0, 0)[0], 150);
+            assert_eq!(canvas.get_pixel(0, 2)[0], 100);
+        }
+
+        // A run of them ramps from the clean line before to the one after. Row 0 is 100, row 4 is
+        // 200, rows 1..4 are bled: 125, 150, 175, with no step in the middle.
+        {
+            let mut canvas = RgbImage::new(10, 5);
+            for y in 0..5 {
+                for x in 4..10 {
+                    canvas.put_pixel(x, y, Rgb([if y == 0 { 100 } else { 200 }, 0, 0]));
+                }
+            }
+            let bands = [(7i64, 10i64), (4, 10), (4, 10), (4, 10), (7, 10)];
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            let col0: Vec<u8> = (0..5).map(|y| canvas.get_pixel(0, y)[0]).collect();
+            assert_eq!(col0, vec![100, 125, 150, 175, 200]);
+        }
+
+        // At the end of the edge it copies its only clean neighbour.
+        {
+            let mut canvas = RgbImage::new(10, 3);
+            for y in 0..3 {
+                for x in 4..10 {
+                    canvas.put_pixel(x, y, Rgb([90, 0, 0]));
+                }
+            }
+            let bands = [(7i64, 10i64), (4, 10), (4, 10)];
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            for y in 1..3 {
+                assert_eq!(canvas.get_pixel(0, y)[0], 90, "row {y} copies row 0");
             }
         }
-        let bands = [(7i64, 10i64), (4, 10), (4, 10), (4, 10), (7, 10)];
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
-        let col0: Vec<u8> = (0..5).map(|y| canvas.get_pixel(0, y)[0]).collect();
-        assert_eq!(col0, vec![100, 125, 150, 175, 200]);
     }
 
     /// A deterministic noisy value, roughly N(0, sigma) per channel, to give a synthetic photo grain.
@@ -574,38 +608,6 @@ mod tests {
         let mut again = before.clone();
         stretch_edge(&mut again, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80) }, None);
         assert_eq!(canvas, again);
-    }
-
-    #[test]
-    fn a_bled_line_at_the_end_of_the_edge_copies_its_only_clean_neighbour() {
-        let mut canvas = RgbImage::new(10, 3);
-        for y in 0..3 {
-            for x in 4..10 {
-                canvas.put_pixel(x, y, Rgb([90, 0, 0]));
-            }
-        }
-        let bands = [(7i64, 10i64), (4, 10), (4, 10)];
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
-        for y in 1..3 {
-            assert_eq!(canvas.get_pixel(0, y)[0], 90, "row {y} copies row 0");
-        }
-    }
-
-    #[test]
-    fn a_fully_bled_edge_keeps_its_flat_fill() {
-        let mut canvas = RgbImage::new(10, 3);
-        for y in 0..3 {
-            for x in 4..10 {
-                canvas.put_pixel(x, y, Rgb([100, 100, 100]));
-            }
-        }
-        let bands = [(4i64, 10i64); 3];
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
-        for y in 0..3 {
-            for x in 0..4u32 {
-                assert!(canvas.get_pixel(x, y).0.iter().all(|&c| c >= 240), "no neighbour, so white at ({x},{y})");
-            }
-        }
     }
 
     #[test]

@@ -151,6 +151,8 @@ mod tests {
 
     #[test]
     fn no_verdict_falls_back() {
+        // The distinction R3 exists for: "touches nothing" (bits 0000 below, which R1 takes) and
+        // "no verdict" must not collapse.
         assert_eq!(Route::select(None), Route::Fallback);
     }
 
@@ -159,6 +161,13 @@ mod tests {
         // All 16 subsets of the four edges. R1 takes every one that leaves it a way to build the
         // square; the two that do not are left+right (no room to grow the boxed-in axis) and the
         // full bleed (nothing anywhere to grow from).
+        //
+        // The asymmetry is real and it is not about the axis. Left+right bled means the square
+        // cannot be wider than the frame while the subject is taller than it, so something has to
+        // be cropped. Top+bottom bled means the square is as tall as the frame and the width has
+        // room to stretch into, which R1 does well. A third bled edge hands the image back to R1,
+        // because the one remaining free edge is somewhere to put the slack (image 29 of the test
+        // set, which frames correctly).
         for bits in 0u8..16 {
             let touches: Vec<Edge> = Edge::ALL
                 .iter()
@@ -181,30 +190,6 @@ mod tests {
     }
 
     #[test]
-    fn left_and_right_crop_but_top_and_bottom_do_not() {
-        // The asymmetry is real and it is not about the axis. Left+right bled means the square
-        // cannot be wider than the frame while the subject is taller than it, so something has to
-        // be cropped. Top+bottom bled means the square is as tall as the frame and the width has
-        // room to stretch into, which R1 does well.
-        assert_eq!(Route::select(Some(&verdict(&[Edge::Left, Edge::Right]))), Route::CropSquare);
-        assert_eq!(
-            Route::select(Some(&verdict(&[Edge::Top, Edge::Bottom]))),
-            Route::CenterAndStretch
-        );
-    }
-
-    #[test]
-    fn a_third_bled_edge_hands_the_image_back_to_r1() {
-        // Two edges left+right crop; add a third and R1 takes it again, because the one remaining
-        // free edge is somewhere to put the slack. This is image 29 of the test set, which frames
-        // correctly.
-        assert_eq!(
-            Route::select(Some(&verdict(&[Edge::Left, Edge::Right, Edge::Bottom]))),
-            Route::CenterAndStretch
-        );
-    }
-
-    #[test]
     fn a_mask_worth_nothing_crops_whatever_its_edges_say() {
         // Images 6 and 30: the edge verdict may be perfectly ordinary, but there is no subject
         // behind it, so no route that frames around the mask can produce a sane result.
@@ -212,12 +197,6 @@ mod tests {
             let class = ShotClassification { mask_too_small: true, ..verdict(&touches) };
             assert_eq!(Route::select(Some(&class)), Route::CropSquare, "{touches:?}");
         }
-    }
-
-    #[test]
-    fn an_empty_verdict_is_not_a_missing_one() {
-        // The distinction R3 exists for: "touches nothing" and "no verdict" must not collapse.
-        assert_ne!(Route::select(Some(&verdict(&[]))), Route::select(None));
     }
 
     fn mask_with(w: u32, h: u32, subject: Rect) -> Mask {
@@ -231,22 +210,18 @@ mod tests {
     }
 
     #[test]
-    fn subject_bbox_is_tight_around_the_mask() {
-        let mask = mask_with(100, 100, Rect { x: 20, y: 30, w: 40, h: 20 });
+    fn subject_bbox_is_tight_around_the_mask_and_empty_for_an_empty_one() {
         let class = verdict(&[]);
+        let mask = mask_with(100, 100, Rect { x: 20, y: 30, w: 40, h: 20 });
         let got = Shot { class: &class, mask: &mask, bgc: None }.subject_bbox().expect("mask is not empty");
 
         // Tight, not the frame: the whole point of deriving it from the mask rather than taking
         // `Instance::bbox`, which BiRefNet fills with the full image.
         assert_eq!((got.x, got.y, got.w, got.h), (20, 30, 40, 20));
-    }
 
-    #[test]
-    fn an_empty_mask_has_no_subject_bbox() {
-        let mask = Mask { width: 50, height: 50, data: vec![0u8; 2500] };
-        let class = verdict(&[]);
+        let empty = Mask { width: 50, height: 50, data: vec![0u8; 2500] };
         assert!(
-            Shot { class: &class, mask: &mask, bgc: None }.subject_bbox().is_none(),
+            Shot { class: &class, mask: &empty, bgc: None }.subject_bbox().is_none(),
             "an empty mask must report no subject, not a box covering the frame"
         );
     }

@@ -56,7 +56,7 @@ pub fn export(
     source: &Path,
     backup: &Path,
     shot: Option<ShotInputs<'_>>,
-) -> Result<(), String> {
+)-> Result<(), String> {
     let sized = resize::to_envelope(img);
 
     if tags_enabled() {

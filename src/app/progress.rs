@@ -146,21 +146,31 @@ impl Progress {
     /// drawn *over* the cells it needs. Pinning the label's start at `WIDTH - len` keeps the bar
     /// exactly `WIDTH` wide at 100%, where it ends up sitting on top of the filled cells.
     fn bar(&self, done: usize) -> String {
-        let frac = done as f64 / self.total.max(1) as f64;
-        let filled = ((frac * WIDTH as f64).round() as usize).min(WIDTH);
-        let cells: Vec<char> = (0..WIDTH)
-            .map(|i| if i < filled { FULL } else { EMPTY })
-            .collect();
-
-        let pct = format!("{}%", (frac * 100.0).round() as u32);
-        let len = pct.chars().count().min(WIDTH);
-        let at = filled.min(WIDTH - len);
-        format!(
-            "{TEAL}{}{BOLD}{pct}{RESET}{TEAL}{}{RESET}",
-            cells[..at].iter().collect::<String>(),
-            cells[at + len..].iter().collect::<String>(),
-        )
+        bar_line(TEAL, done as f64 / self.total.max(1) as f64)
     }
+}
+
+/// The bar line at 0% in the slug's dark grey, indented like the live one — the idle bar shown
+/// behind the headcut question.
+pub fn dimmed_empty_bar() -> String {
+    format!("{}{}", " ".repeat(theme::INDENT), bar_line(theme::DARK, 0.0))
+}
+
+/// `WIDTH` cells in `colour`, solid up to `frac`, with the percentage drawn over them.
+fn bar_line(colour: &str, frac: f64) -> String {
+    let filled = ((frac * WIDTH as f64).round() as usize).min(WIDTH);
+    let cells: Vec<char> = (0..WIDTH)
+        .map(|i| if i < filled { FULL } else { EMPTY })
+        .collect();
+
+    let pct = format!("{}%", (frac * 100.0).round() as u32);
+    let len = pct.chars().count().min(WIDTH);
+    let at = filled.min(WIDTH - len);
+    format!(
+        "{colour}{}{BOLD}{pct}{RESET}{colour}{}{RESET}",
+        cells[..at].iter().collect::<String>(),
+        cells[at + len..].iter().collect::<String>(),
+    )
 }
 
 #[cfg(test)]

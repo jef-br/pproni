@@ -1,16 +1,18 @@
 //! Build-time steps that shape the final exe
 //!
 //! 1. Stamps the Windows app icon onto the binary (Explorer, taskbar and console read it straight
-//!    from the exe). `Pepperoni.ico` is committed at the repo root: unlike the model and the
+//!    from the exe). `Pepperoni.ico` is committed at the repo root: unlike the models and the
 //!    runtime it is small, so it lives in the repo rather than being a build-time prerequisite.
-//! 2. Encrypts the embedded BiRefNet model. The plaintext named by [`MODEL_FILE`] inside
-//!    [`MODEL_DIR`] (gitignored) is read here, encrypted under a key generated fresh for this build, and
-//!    written to `$OUT_DIR/model.onnx.enc`; the key+nonce go to `$OUT_DIR/model_key.rs`. The
-//!    encrypted name is fixed so swapping which model ships is one edit here, not two.
-//!    So the plaintext model is never `include_bytes!`'d into the image and never lands in git — see
-//!    `core::shot_classifier::birefnet`, which decrypts it in memory at load. This is obfuscation,
-//!    not secrecy: the key ships in the binary. `src/core/shot_classifier/cipher.rs` is the shared
-//!    XOR-symmetric ChaCha20 keystream, pulled in here by path so encrypt and decrypt agree.
+//! 2. Encrypts the embedded ONNX models — one per slot. The plaintext named by each slot's filename
+//!    inside [`MODEL_DIR`] (gitignored) is read here, encrypted under a key generated fresh for
+//!    this build, and written to `$OUT_DIR/<slot>.onnx.enc`; the key+nonce go to
+//!    `$OUT_DIR/<slot>_key.rs`. The encrypted names are fixed so swapping which model ships is
+//!    one edit here, not two. So the plaintext model is never `include_bytes!`'d into the image
+//!    and never lands in git — see `core::shot_classifier::birefnet` (BiRefNet) and
+//!    `core::preprocessor::maria_antonieta` (philtrum), which decrypt them in memory at load.
+//!    This is obfuscation, not secrecy: the key ships in the binary.
+//!    `src/core/shot_classifier/cipher.rs` is the shared XOR-symmetric ChaCha20 keystream, pulled
+//!    in here by path so encrypt and decrypt agree.
 
 #[allow(dead_code)]
 #[path = "src/core/shot_classifier/cipher.rs"]
@@ -23,13 +25,12 @@ use std::path::Path;
 /// nothing else in the tree looks for a `.onnx` anywhere but here.
 const MODEL_DIR: &str = "models";
 
-/// Which model in [`MODEL_DIR`] gets baked into this build. This constant is the
-/// only thing that decides which one ships. To switch, move the `//` — exactly
-/// one of these lines must be live, and leaving both live is a build error
-/// (E0428, `MODEL_FILE` defined twice) rather than a silent wrong model.
-// const MODEL_FILE: &str = "birefnet_lite_384_int8.onnx"; // JB: Homemade optimized-for-speed model. Untested performance.
-// const MODEL_FILE: &str = "birefnet_lite_512.onnx"; // JB: Proven to work. Slower & bigger. Native DeformConv: CPU / CUDA only.
-const MODEL_FILE: &str = "birefnet_512_nodeform_op19.onnx"; // PProni-GPU: same weights, DeformConv rewritten as GridSample + Conv so DirectML can run it.
+/// ONNX for the BiRefNet model in [`MODEL_DIR`] 
+// const MODEL_FILE: &str = "birefnet_lite_512.onnx"; // JB: Proven to work. Native DeformConv: CPU / CUDA only.
+const MODEL_FILE: &str = "birefnet_512_nodeform_op19.onnx"; // JB: Proven to work. Same weights, DeformConv rewritten as GridSample + Conv so DirectML can run it.
+
+/// ONNX model consumed by `core::preprocessor::maria_antonieta` for the headcut feature.
+const PHILTRUM_MODEL_FILE: &str = "face_detection_yunet_2026may.onnx";
 
 fn main() {
     #[cfg(windows)]
@@ -41,17 +42,21 @@ fn main() {
             .expect("embedding Pepperoni.ico failed");
     }
 
-    encrypt_model();
+    encrypt_slot(MODEL_FILE, "model", "MODEL");
+    encrypt_slot(PHILTRUM_MODEL_FILE, "philtrum", "PHILTRUM");
 }
 
-/// Read the plaintext model, encrypt it under a fresh key, and emit the encrypted blob plus a
-/// generated key module into `OUT_DIR`.
-fn encrypt_model() {
+/// Read the plaintext model named by `plaintext` out of [`MODEL_DIR`], encrypt it under a fresh
+/// key, and emit `$OUT_DIR/<out_stem>.onnx.enc` plus a key module `$OUT_DIR/<out_stem>_key.rs`
+/// that declares `pub const <KEY_PREFIX>_KEY: [u8;32]` and `pub const <KEY_PREFIX>_NONCE: [u8;12]`.
+///
+/// One slot per ONNX model baked into the exe. The key and nonce are fresh per build.
+fn encrypt_slot(plaintext: &str, out_stem: &str, key_prefix: &str) {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
 
-    let model = Path::new(&manifest).join(MODEL_DIR).join(MODEL_FILE);
-    println!("cargo:rerun-if-changed={MODEL_DIR}/{MODEL_FILE}");
+    let model = Path::new(&manifest).join(MODEL_DIR).join(plaintext);
+    println!("cargo:rerun-if-changed={MODEL_DIR}/{plaintext}");
     println!("cargo:rerun-if-changed=src/core/shot_classifier/cipher.rs");
 
     let mut bytes = std::fs::read(&model)
@@ -60,15 +65,16 @@ fn encrypt_model() {
     let (key, nonce) = fresh_key_nonce();
     cipher::xor_keystream(&mut bytes, &key, &nonce);
 
-    std::fs::write(Path::new(&out_dir).join("model.onnx.enc"), &bytes)
+    std::fs::write(Path::new(&out_dir).join(format!("{out_stem}.onnx.enc")), &bytes)
         .expect("write encrypted model");
 
     let key_rs = format!(
         "// Generated by build.rs — fresh per build, never committed.\n\
-         pub const MODEL_KEY: [u8; 32] = {key:?};\n\
-         pub const MODEL_NONCE: [u8; 12] = {nonce:?};\n",
+         pub const {key_prefix}_KEY: [u8; 32] = {key:?};\n\
+         pub const {key_prefix}_NONCE: [u8; 12] = {nonce:?};\n",
     );
-    std::fs::write(Path::new(&out_dir).join("model_key.rs"), key_rs).expect("write key module");
+    std::fs::write(Path::new(&out_dir).join(format!("{out_stem}_key.rs")), key_rs)
+        .expect("write key module");
 }
 
 /// A key and nonce unique to this build. Obfuscation-grade entropy: a splitmix64 stream seeded from

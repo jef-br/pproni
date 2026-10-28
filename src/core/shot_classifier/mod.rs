@@ -23,7 +23,7 @@
 //! [`classify_instance`] the preprocessor's two resolutions.
 
 pub mod birefnet;
-mod cipher;
+pub(crate) mod cipher;
 pub mod gate;
 pub mod geometry;
 mod gpu_adapters;

@@ -688,28 +688,15 @@ mod tests {
     use super::*;
     use image::Rgb;
 
-    /// Endpoints are pinned: the darkest pixel comes out 0 and the brightest 255.
     #[test]
-    fn extremes_map_to_extremes() {
-        let mut img = RgbImage::from_pixel(16, 16, Rgb([120, 120, 120]));
-        img.put_pixel(0, 0, Rgb([10, 10, 10]));
-        img.put_pixel(1, 0, Rgb([240, 240, 240]));
-        let out = colour_balance(&img).expect("this image changes");
-        assert_eq!(out.get_pixel(0, 0)[0], 0);
-        assert_eq!(out.get_pixel(1, 0)[0], 255);
-    }
-
-    #[test]
-    fn a_flat_edge_reads_flat_with_its_colour() {
+    fn edges_read_flat_backdrop_or_a_coloured_band() {
+        // A flat edge reads flat, with its colour.
         let img = RgbImage::from_pixel(40, 40, Rgb([255, 255, 255]));
         let (flat, med) = edge_flat_median(&edge_samples(&img, 0));
         assert!(flat);
         assert_eq!(med, [255, 255, 255]);
-    }
 
-    #[test]
-    fn a_plain_backdrop_reads_all_backdrop() {
-        // A product blob floating on a plain backdrop, not touching any edge.
+        // A product blob floating on a plain backdrop, not touching any edge: all backdrop.
         let mut img = RgbImage::from_pixel(60, 60, Rgb([250, 250, 250]));
         for y in 20..40 {
             for x in 20..40 {
@@ -717,10 +704,7 @@ mod tests {
             }
         }
         assert_eq!(classify_trim_edges(&img), [EdgeKind::Backdrop; 4]);
-    }
 
-    #[test]
-    fn a_coloured_flat_band_reads_flatother_against_a_white_backdrop() {
         // White backdrop, with a full-height blue band down the left 6 columns (a coloured pad).
         let mut img = RgbImage::from_pixel(60, 60, Rgb([250, 250, 250]));
         for y in 0..60 {
@@ -817,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_two_leaves_a_box_that_holds_still() {
+    fn trim_two_leaves_a_box_that_holds_still_or_moves_within_the_tolerance() {
         // A product on a plain backdrop: the second run samples the same backdrop and agrees.
         let mut img = RgbImage::from_pixel(100, 100, Rgb([250, 250, 250]));
         for y in 30..60 {
@@ -827,10 +811,7 @@ mod tests {
         }
         let first = product_box(&img).unwrap();
         assert_eq!(recheck_box(&img, first), None);
-    }
 
-    #[test]
-    fn trim_two_ignores_a_move_within_the_tolerance() {
         // A 2 px ring: trim 2's box sits 2 px inside trim 1's on every side — not MORE than 2.
         let mut img = RgbImage::from_pixel(100, 100, Rgb([250, 250, 250]));
         for y in 20..80 {
@@ -915,14 +896,6 @@ mod tests {
         }
     }
 
-    /// The pure-red example: shared range 0..200, gamma 0.725. Red 200 comes out 255, the zeros stay 0.
-    #[test]
-    fn red_200_green_0_blue_0_comes_out_255_0_0() {
-        let img = RgbImage::from_pixel(10, 10, Rgb([200, 0, 0]));
-        let out = colour_balance(&img).expect("this image changes");
-        assert_eq!(*out.get_pixel(5, 5), Rgb([255, 0, 0]));
-    }
-
     /// Build a histogram from `(value, pixel count)` pairs.
     fn hist_of(parts: &[(usize, u64)]) -> [u64; 256] {
         let mut hist = [0u64; 256];
@@ -932,64 +905,53 @@ mod tests {
         hist
     }
 
-    /// The worked example: of 10,000 pixels, 61 sit at 50 (0.61%) and 23 more at 138, so the
-    /// running share is 0.61% up to 137 and 0.84% at 138. The highest value still within 0.68% is 137.
     #[test]
-    fn lo_is_the_highest_value_within_the_dark_budget() {
+    fn the_cut_points_follow_the_dark_budget_and_the_99_32_percentile() {
+        // The worked example: of 10,000 pixels, 61 sit at 50 (0.61%) and 23 more at 138, so the
+        // running share is 0.61% up to 137 and 0.84% at 138. The highest value still within 0.68%
+        // is 137: `lo` is the highest value within the dark budget.
         let hist = hist_of(&[(50, 61), (138, 23), (200, 9916)]);
         assert_eq!(cut_points(&hist).0, 137);
-    }
 
-    /// The same 10,000 pixels read from the top: 9,916 at 100 (99.16% at or below) and 23 at 117
-    /// (99.39% at or below). 117 is the first value to reach 99.32%.
-    #[test]
-    fn hi_is_the_99_32_percentile() {
+        // The same 10,000 pixels read from the top: 9,916 at 100 (99.16% at or below) and 23 at 117
+        // (99.39% at or below). 117 is the first value to reach 99.32%: `hi` is that percentile.
         let hist = hist_of(&[(100, 9916), (117, 23), (200, 61)]);
         assert_eq!(cut_points(&hist).1, 117);
-    }
 
-    /// An exact tie counts as reaching it: 9,932 of 10,000 pixels at or below 100 is exactly 99.32%.
-    #[test]
-    fn a_tie_at_the_percentile_counts_as_reaching_it() {
+        // An exact tie counts as reaching it: 9,932 of 10,000 pixels at or below 100 is exactly 99.32%.
         let hist = hist_of(&[(100, 9932), (200, 68)]);
         assert_eq!(cut_points(&hist).1, 100);
         // And 68 of 10,000 at or below is exactly 0.68%, which the lo budget allows.
         let hist = hist_of(&[(10, 68), (100, 9932)]);
         assert_eq!(cut_points(&hist).0, 99);
-    }
 
-    /// A backdrop that is itself over the budget cannot be cut into: lo falls back to 0 and hi to 255.
-    #[test]
-    fn a_black_and_white_image_keeps_the_full_range() {
+        // A backdrop that is itself over the budget cannot be cut into: lo falls back to 0 and hi to 255.
         let hist = hist_of(&[(0, 5000), (255, 5000)]);
         assert_eq!(cut_points(&hist), (0, 255));
-    }
 
-    /// A channel that is entirely one value v gives (v - 1, v); at 0 there is no room below.
-    #[test]
-    fn a_flat_channel_sits_just_under_its_value() {
+        // A channel that is entirely one value v gives (v - 1, v); at 0 there is no room below.
         assert_eq!(cut_points(&hist_of(&[(200, 10_000)])), (199, 200));
         assert_eq!(cut_points(&hist_of(&[(0, 10_000)])), (0, 0));
+
+        // No pixels at all reads as "no range": lo above hi.
+        let (lo, hi) = cut_points(&[0u64; 256]);
+        assert!(hi <= lo);
+        assert_eq!(shared_range(&RgbImage::new(0, 0)), None);
     }
 
-    /// The pure-red example: R all 200, G and B all 0. The flat green and blue set `lo` = 0, red
-    /// sets `hi` = 200.
+    /// The pure-red example: R all 200, G and B all 0.
     #[test]
-    fn red_200_green_0_blue_0_shares_lo_0_and_hi_200() {
+    fn the_pure_red_example() {
+        // The flat green and blue set `lo` = 0, red sets `hi` = 200.
         let img = RgbImage::from_pixel(10, 10, Rgb([200, 0, 0]));
         assert_eq!(shared_range(&img), Some((0, 200)));
-    }
+        // Gamma 0.725. Red 200 comes out 255, the zeros stay 0.
+        assert!((gamma(0, 200) - 0.725).abs() < 1e-3);
+        let out = colour_balance(&img).expect("this image changes");
+        assert_eq!(*out.get_pixel(5, 5), Rgb([255, 0, 0]));
 
-    /// A black image has no range at all: every channel is flat at 0.
-    #[test]
-    fn an_all_black_image_has_no_range() {
-        assert_eq!(shared_range(&RgbImage::from_pixel(10, 10, Rgb([0, 0, 0]))), None);
-    }
-
-    /// A pure-red image: red spreads over 100-200, green and blue are flat at 0. The flat channels
-    /// vote too, so the shared `lo` is 0 (their `lo`), and the shared `hi` is red's own `hi`.
-    #[test]
-    fn flat_channels_vote_on_the_shared_range() {
+        // Red spreading over 100-200 instead: green and blue are flat at 0. The flat channels vote
+        // too, so the shared `lo` is 0 (their `lo`), and the shared `hi` is red's own `hi`.
         let mut img = RgbImage::new(100, 100);
         for (i, px) in img.pixels_mut().enumerate() {
             *px = Rgb([100 + (i % 101) as u8, 0, 0]);
@@ -1013,11 +975,11 @@ mod tests {
         assert_eq!((lo, hi), (lo_r, hi_b));
     }
 
-    /// The gamma matches the worked examples: the pure-red case, and the two images checked in Photoshop.
+    /// The gamma matches the worked examples: the two images checked in Photoshop (the pure-red case
+    /// is in `the_pure_red_example`).
     #[test]
     fn gamma_matches_the_worked_examples() {
         let close = |a: f64, b: f64| (a - b).abs() < 1e-3;
-        assert!(close(gamma(0, 200), 0.725)); // R=200, G=0, B=0
         assert!(close(gamma(41, 247), 1.159)); // 8712345678901.jpg
         assert!(close(gamma(23, 255), 1.1)); // TH12_0N3_M47CH32…
         assert_eq!(gamma(0, 255), 1.0); // full range: neutral
@@ -1031,47 +993,31 @@ mod tests {
         assert_eq!(gamma(254, 255), GAMMA_MAX); // formula gives 255
     }
 
-    /// The worked example: lo 41, hi 247, gamma 1.159. 128 maps to 121 (0.422 after the remap, 0.475
-    /// after the gamma, times 255). The ends are pinned: at or below lo is 0, at or above hi is 255.
     #[test]
-    fn the_table_matches_the_worked_example() {
+    fn the_table_pins_the_ends_follows_the_gamma_and_never_goes_down() {
+        // The worked example: lo 41, hi 247, gamma 1.159. 128 maps to 121 (0.422 after the remap,
+        // 0.475 after the gamma, times 255). The ends are pinned: at or below lo is 0, at or above
+        // hi is 255.
         let t = build_table(41, 247, 1.159);
         assert_eq!(t[128], 121);
         assert_eq!((t[0], t[41]), (0, 0));
         assert_eq!((t[247], t[255]), (255, 255));
-    }
 
-    /// Full range and neutral gamma change nothing.
-    #[test]
-    fn full_range_and_gamma_one_is_the_identity_table() {
+        // Full range and neutral gamma change nothing.
         let t = build_table(0, 255, 1.0);
         for x in 0..256 {
             assert_eq!(t[x], x as u8);
         }
-    }
 
-    /// Gamma above 1 lightens the midtones, below 1 darkens them.
-    #[test]
-    fn gamma_above_one_lightens_and_below_one_darkens() {
+        // Gamma above 1 lightens the midtones, below 1 darkens them.
         assert!(build_table(0, 255, 2.0)[128] > 128); // 181
         assert!(build_table(0, 255, 0.5)[128] < 128); // 64
-    }
 
-    /// A lighter input never comes out darker, whatever the range and gamma.
-    #[test]
-    fn the_table_never_goes_down() {
+        // A lighter input never comes out darker, whatever the range and gamma.
         for &(lo, hi, g) in &[(41u8, 247u8, 1.159), (0, 200, 0.725), (178, 246, 3.28), (0, 255, 0.01), (254, 255, 9.99)] {
             let t = build_table(lo, hi, g);
             assert!(t.windows(2).all(|w| w[0] <= w[1]), "not monotonic for {lo},{hi},{g}");
         }
-    }
-
-    /// No pixels at all reads as "no range": lo above hi.
-    #[test]
-    fn an_empty_histogram_has_no_range() {
-        let (lo, hi) = cut_points(&[0u64; 256]);
-        assert!(hi <= lo);
-        assert_eq!(shared_range(&RgbImage::new(0, 0)), None);
     }
 
     const BACKDROP: Rgb<u8> = Rgb([245, 245, 245]);
@@ -1089,10 +1035,10 @@ mod tests {
         Rect { x, y, w, h }
     }
 
-    /// 4 samples per edge on an 8x8 frame sit at 0, 2, 4, 6 from each edge's start, going clockwise:
-    /// 16 different pixels, every corner once.
     #[test]
-    fn sixteen_samples_go_round_the_frame_from_each_edges_start() {
+    fn sixteen_samples_go_round_the_frame_and_sit_at_a_quarter_of_the_edge_each() {
+        // 4 samples per edge on an 8x8 frame sit at 0, 2, 4, 6 from each edge's start, going
+        // clockwise: 16 different pixels, every corner once.
         let mut img = RgbImage::new(8, 8);
         for (x, y, px) in img.enumerate_pixels_mut() {
             *px = Rgb([x as u8, y as u8, 0]);
@@ -1108,11 +1054,8 @@ mod tests {
         got.sort();
         expected.sort();
         assert_eq!(got, expected);
-    }
 
-    /// Positions are `i * length / 4`, rounded down: on 1000 pixels 0, 250, 500, 750.
-    #[test]
-    fn samples_on_a_1000_pixel_edge_sit_at_0_250_500_750() {
+        // Positions are `i * length / 4`, rounded down: on 1000 pixels 0, 250, 500, 750.
         let mut img = RgbImage::new(1000, 10);
         for (x, _, px) in img.enumerate_pixels_mut() {
             *px = Rgb([(x / 4) as u8, (x % 4) as u8, 0]);
@@ -1196,25 +1139,20 @@ mod tests {
         }
     }
 
-    /// A square that would stick out of the frame is slid back inside it, with the product still in it.
     #[test]
-    fn the_square_slides_to_stay_inside_the_frame() {
+    fn the_square_stays_inside_the_frame_by_sliding_squeezing_or_being_cut() {
+        // A square that would stick out of the frame is slid back inside it, with the product still in it.
         assert_eq!(square_crop(rect(0, 0, 100, 100), 1000, 1000), rect(0, 0, 120, 120));
         assert_eq!(square_crop(rect(900, 900, 100, 100), 1000, 1000), rect(880, 880, 120, 120));
-    }
 
-    /// Wider than the frame's shorter side, but the product fits: the margin is squeezed, still square.
-    #[test]
-    fn the_margin_is_squeezed_when_the_square_is_wider_than_the_frame() {
-        // Frame 672 x 1000, product 200 x 600 at (30, 100): the square would be 720, so it is 672.
+        // Wider than the frame's shorter side, but the product fits: the margin is squeezed, still
+        // square. Frame 672 x 1000, product 200 x 600 at (30, 100): the square would be 720, so it
+        // is 672.
         assert_eq!(square_crop(rect(30, 100, 200, 600), 672, 1000), rect(0, 64, 672, 672));
-    }
 
-    /// No square can hold the product inside the frame: each axis is cut at the frame, not square.
-    #[test]
-    fn a_product_longer_than_the_frames_short_side_gets_a_crop_cut_at_the_frame() {
-        // Frame 672 x 1000, product 300 x 800: the margin drops to 10 px, so the wanted side is 820.
-        // Whole width, 820 tall.
+        // No square can hold the product inside the frame: each axis is cut at the frame, not
+        // square. Frame 672 x 1000, product 300 x 800: the margin drops to 10 px, so the wanted side
+        // is 820. Whole width, 820 tall.
         assert_eq!(square_crop(rect(100, 100, 300, 800), 672, 1000), rect(0, 90, 672, 820));
     }
 

@@ -207,28 +207,24 @@ mod tests {
     }
 
     #[test]
-    fn white_bars_left_and_right_with_the_subject_on_one_edge_are_centred() {
-        // 41: 1024x1024, bars 132 px each side, full height. Trim 2 moved it a little; that is not
-        // needed to know these are bars. A lifestyle scene cannot be stretched, so it is centred.
-        let first = r(132, 0, 760, 1024);
-        let (d, _) = decide((1024, 1024), first, Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952)));
-        assert_eq!(d, Decision::Centre(first));
-    }
-
-    #[test]
-    fn bars_top_and_bottom_are_centred_even_with_a_sliver_missed_on_one_side() {
-        // 46: 193 px above and 212 below, and 14 px short on the right where the product is pale.
-        let first = r(0, 193, 1010, 619);
-        let (d, _) = decide((1024, 1024), first, None, 1, None);
-        assert_eq!(d, Decision::Centre(first));
-    }
-
-    #[test]
-    fn bars_with_the_subject_on_two_edges_are_centred_with_padding() {
-        // 35: 1024x1024, bars 30 and 27 px either side, subject on the top and the bottom edge.
-        let first = r(30, 0, 967, 1024);
-        let (d, _) = decide((1024, 1024), first, None, 2, None);
-        assert_eq!(d, Decision::Centre(first));
+    fn white_bars_are_centred() {
+        // (image, trim 1's box, trim 2's box, edges the subject touches, mask box)
+        let cases = [
+            // 41: 1024x1024, bars 132 px each side, full height, subject on one edge. Trim 2 moved
+            // it a little; that is not needed to know these are bars. A lifestyle scene cannot be
+            // stretched, so it is centred.
+            ("41", r(132, 0, 760, 1024), Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952))),
+            // 46: 193 px above and 212 below, and 14 px short on the right where the product is
+            // pale: a sliver missed on one side does not stop it being bars.
+            ("46", r(0, 193, 1010, 619), None, 1, None),
+            // 35: 1024x1024, bars 30 and 27 px either side, subject on the top and the bottom
+            // edge: centred with padding.
+            ("35", r(30, 0, 967, 1024), None, 2, None),
+        ];
+        for (image, first, second, touched, mask) in cases {
+            let (d, why) = decide((1024, 1024), first, second, touched, mask);
+            assert_eq!(d, Decision::Centre(first), "image {image}: {why}");
+        }
     }
 
     #[test]
@@ -255,58 +251,41 @@ mod tests {
     }
 
     #[test]
-    fn a_floating_product_whose_box_is_the_product_is_left_alone() {
-        // Plain backdrop, product in the middle, trim 1's box is the mask (within the tolerance).
-        let first = r(300, 300, 400, 400);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(304, 298, 394, 402)));
-        assert_eq!(d, Decision::Keep);
+    fn these_are_left_alone() {
+        // (why it is left alone, trim 1's box, trim 2's box, edges the subject touches, mask box)
+        let cases = [
+            // Plain backdrop, product in the middle, trim 1's box is the mask (within the tolerance).
+            ("a floating product whose box is the product", r(300, 300, 400, 400), None, 0, Some(r(304, 298, 394, 402))),
+            ("a ring when trim two found another layer", r(9, 15, 1008, 1003), Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880))),
+            ("a box that is not square", r(9, 15, 1008, 700), None, 0, Some(r(380, 130, 310, 500))),
+            ("a mask reaching outside the box: the box cut the product", r(9, 15, 1008, 1003), None, 0, Some(r(0, 130, 400, 880))),
+            ("nothing cut: nothing to do", r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900))),
+            // An ordinary studio shot that bleeds off the bottom: backdrop trimmed on three sides.
+            ("a subject on an edge with trim on both axes: left to R1", r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934))),
+        ];
+        for (name, first, second, touched, mask) in cases {
+            let (d, why) = decide((1024, 1024), first, second, touched, mask);
+            assert_eq!(d, Decision::Keep, "{name}: {why}");
+        }
     }
 
-    #[test]
-    fn a_ring_is_not_peeled_when_trim_two_found_another_layer() {
-        let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_box_that_is_not_square_is_not_peeled() {
-        let first = r(9, 15, 1008, 700);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 500)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_mask_reaching_outside_the_box_means_the_box_cut_the_product() {
-        let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(0, 130, 400, 880)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn nothing_cut_means_nothing_to_do() {
-        let (d, _) = decide((1024, 1024), r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_subject_on_an_edge_with_trim_on_both_axes_is_left_to_r1() {
-        // An ordinary studio shot that bleeds off the bottom: backdrop trimmed on three sides.
-        let (d, _) = decide((1024, 1024), r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn the_peel_goes_on_inside_a_frame_the_product_runs_into() {
-        // A 100x100 picture: dark frame 8 px thick, light inside, a red product from y=30 right
-        // through the bottom of the frame. Trim 1 stopped 3 px in on every side, and 3 px from the
-        // bottom, where the product merges with the frame.
+    /// A 100x100 picture: a dark frame 8 px thick round a light inside.
+    fn frame_100() -> RgbImage {
         let mut img = RgbImage::from_pixel(100, 100, image::Rgb([20, 20, 20]));
         for y in 8..92 {
             for x in 8..92 {
                 img.put_pixel(x, y, image::Rgb([200, 200, 200]));
             }
         }
+        img
+    }
+
+    #[test]
+    fn the_peel_goes_on_inside_a_frame_the_product_runs_into() {
+        // The frame of `frame_100`, and a red product from y=30 right through the bottom of the
+        // frame. Trim 1 stopped 3 px in on every side, and 3 px from the bottom, where the product
+        // merges with the frame.
+        let mut img = frame_100();
         let mut mask = Mask { width: 100, height: 100, data: vec![0; 10_000] };
         for y in 30..100 {
             for x in 40..60 {
@@ -327,14 +306,8 @@ mod tests {
     }
 
     #[test]
-    fn the_peel_stops_at_a_line_with_real_background_outside_the_mask() {
-        // The inside has a dark stripe along the bottom that is NOT frame colour: stop there.
-        let mut img = RgbImage::from_pixel(100, 100, image::Rgb([20, 20, 20]));
-        for y in 8..92 {
-            for x in 8..92 {
-                img.put_pixel(x, y, image::Rgb([200, 200, 200]));
-            }
-        }
+    fn the_peel_works_without_a_product_and_only_for_the_frames_own_colour() {
+        let img = frame_100();
         let mask = Mask { width: 100, height: 100, data: vec![0; 10_000] };
         let peeled = deepen_peel(&img, &mask, r(3, 3, 94, 94), [20, 20, 20]);
         assert_eq!(peeled, r(9, 9, 82, 82));

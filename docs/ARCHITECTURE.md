@@ -112,6 +112,7 @@ it — that is expected, not drift.
 | `core` | `process_file(input, output) -> Result<(), String>` |
 | `core::config` | `JPEG_QUALITY`, `WORKING_SIZE`, `GATE_MARGIN_PX`, `REFINE_BAND_PX`, `REFINE_SAFETY_PX`, `REFINE_CONTEXT_PX` |
 | `core::preprocessor` | `Decoded`, `Prepared`, `Trims`, `Framing`, `load`, `preprocess`, `prepare`; `optimizer::optimize`, `optimize_both`, `detect_letterbox` |
+| `core::preprocessor::maria_antonieta` | `cut_above_philtrum(section) -> Option<RgbImage>`, `preflight()` — headcut on a face-containing section via an embedded YuNet (OpenCV Zoo, BSD-3-Clause) ONNX; cut above the philtrum, else `None`. Called from `process_file` post-classify when `Options::enable_headcuts` is on and EIX leaves Left or Right free |
 | `core::framing` | `decide`, `Decision` (`Keep`, `Centre`, `Crop`, `Peel`), `border_colour`, `deepen_peel` |
 | `core::processor::routes` | `Route`, `Route::select`, `dispatch` |
 | `core::processor::routes::{center_and_stretch, crop_square, fallback}` | `apply` |
@@ -229,16 +230,22 @@ embedded model is also **encrypted at rest** (see below), so it no longer carves
 with `binwalk`/`strings`. This is obfuscation, not secrecy: the key ships in the binary, so it
 raises the effort bar without pretending a determined analyst can't recover the weights.
 
-**Met.** `cargo build --release` produces one exe file (~195MB) and nothing else. Two things are
+**Met.** `cargo build --release` produces one exe file (~195MB) and nothing else. Three things are
 compiled in:
 
-- **The model.** `shot_classifier::birefnet` embeds one BiRefNet export and loads it through
-  `Session::commit_from_memory`. It is stored **encrypted**: `build.rs` reads the plaintext out of
-  `models/` — `MODEL_DIR` plus `MODEL_FILE` there are the only things that pick which export ships —
-  encrypts it under a per-build key (a ChaCha20 keystream in `shot_classifier::cipher`,
+- **The segmentation model.** `shot_classifier::birefnet` embeds one BiRefNet export and loads it
+  through `Session::commit_from_memory`. It is stored **encrypted**: `build.rs` reads the plaintext
+  out of `models/` — `MODEL_DIR` plus `MODEL_FILE` there are the only things that pick which export
+  ships — encrypts it under a per-build key (a ChaCha20 keystream in `shot_classifier::cipher`,
   shared with the build script by path), and `include_bytes!`'s the encrypted blob from `OUT_DIR`;
   `birefnet::load` decrypts into a heap buffer only for as long as ORT needs to copy the graph in.
   The plaintext model is never a static string in the image and never touches disk.
+- **The philtrum model.** `preprocessor::maria_antonieta` embeds a second ONNX export (YuNet,
+  OpenCV Zoo, BSD-3-Clause) the same way, via `build.rs`'s `encrypt_slot` helper. One slot per
+  model: `PHILTRUM_MODEL_FILE` picks the plaintext in `models/`, `philtrum.onnx.enc` and
+  `philtrum_key.rs` emit beside the BiRefNet ones. Used by `cut_above_philtrum` for the headcut feature;
+  built once at startup by `core::preflight` so a corrupt or missing export aborts the batch
+  loudly.
 - **The ONNX Runtime.** `core::runtime` embeds `onnxruntime.dll` the same way. `ort`'s
   `load-dynamic` needs a real path to `LoadLibrary`, so at first use the bytes are written once to
   `<%LOCALAPPDATA%|temp>/pproni-<tag>/pproni.dll` and that path is handed to `ort::init_from`.

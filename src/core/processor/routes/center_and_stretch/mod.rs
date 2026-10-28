@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn growing_widens_a_span_by_the_discs_reach() {
+    fn growing_widens_a_span_by_the_discs_reach_and_far_lines_take_the_nearest_span() {
         let g = grow_spans(&[None, None, Some((10, 12)), None, None], 2, NO_SLOPE);
         // On the line itself the disc reaches 2 each way; one line away floor(sqrt(3)) = 1; two away 0.
         assert_eq!(g[2], (8, 15));
@@ -352,10 +352,8 @@ mod tests {
         assert_eq!(g[3], (9, 14));
         assert_eq!(g[0], (10, 13));
         assert_eq!(g[4], (10, 13));
-    }
 
-    #[test]
-    fn lines_the_disc_does_not_reach_take_the_nearest_span() {
+        // Lines the disc does not reach take the nearest span.
         let g = grow_spans(&[None, Some((5, 6)), None, None, None, None, None, None], 1, NO_SLOPE);
         assert_eq!(g[1], (4, 8));
         assert_eq!(g[2], (5, 7));
@@ -403,12 +401,9 @@ mod tests {
         assert_eq!(*out.get_pixel(47, 47), Rgb([10, 10, 10]));
         assert_eq!(*out.get_pixel(1, 1), Rgb([200, 200, 200]));
         assert_eq!(*out.get_pixel(92, 92), Rgb([200, 200, 200]));
-    }
 
-    #[test]
-    fn a_square_that_fits_is_a_pure_crop() {
-        // Every side lands on real pixels, so nothing is resampled: a uniform background stays
-        // exactly its own value, and the subject band is copied untouched.
+        // A square subject already in the middle: every side lands on real pixels, so it is a pure
+        // crop, nothing resampled. A uniform background stays exactly its own value.
         let (img, mask) = scene(400, 400, Rect { x: 150, y: 150, w: 100, h: 100 }, [240, 240, 240], [0, 0, 0]);
         let out = run(img, &mask);
         assert_eq!(out.dimensions(), (108, 108));

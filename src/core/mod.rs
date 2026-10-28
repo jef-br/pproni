@@ -3,22 +3,52 @@
 pub mod config;
 pub mod exporter;
 pub mod framing;
+pub mod options;
 pub mod preprocessor;
 pub mod processor;
 pub mod runtime;
 pub mod shot_classifier;
 pub mod trace;
 
-use preprocessor::{Framing, Prepared, Trims};
+use options::Options;
+use preprocessor::{maria_antonieta, Framing, Prepared, Trims};
 use shot_classifier::geometry::Rect;
-use shot_classifier::{Instance, Mask, ShotClassification};
+use shot_classifier::{Edge, Instance, Mask, ShotClassification};
 use std::path::Path;
 
 /// Full per-file pipeline.
-pub fn process_file(input: &Path, output: &Path, backup: &Path) -> Result<(), String> {
+pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Options) -> Result<(), String> {
     let _trace = trace::begin(output);
-    let mut prep = preprocessor::prepare(input)?;
+    let mut prep = preprocessor::prepare(input, options)?;
     let mut classified = classify(&prep);
+
+    // Headcut (`maria_antonieta`): post-classify, pre-framing. When EIX leaves Left or Right free,
+    // the picture has room on a side, so we run the small philtrum detector on a sub-section of
+    // the optimised image and cut above the philtrum. Peel-style rebuild: original/working/mask
+    // are cropped, the edge judge re-runs on the cropped mask, no second BiRefNet pass.
+    if options.enable_headcuts {
+        if let Some((class, mask)) = classified.as_ref() {
+            if headcut_eligible(class) {
+                if let Some(cut_y) = plan_headcut(&prep, mask) {
+                    trace::note(|| format!("headcut: cut above working y={cut_y}"));
+                    let frame = Rect {
+                        x: 0,
+                        y: cut_y,
+                        w: prep.working.width(),
+                        h: prep.working.height().saturating_sub(cut_y),
+                    };
+                    let instance = Instance {
+                        mask: mask.cropped(frame),
+                        bbox: Rect { x: 0, y: 0, w: frame.w, h: frame.h },
+                        class_id: 0,
+                        confidence: 1.0,
+                    };
+                    prep = peel(&prep, frame);
+                    classified = Some(judge(&prep, instance));
+                }
+            }
+        }
+    }
 
     // Framing: read the two trims against the mask the one model run gave, and see whether what trim 1
     // cut off is padding or a frame (see `framing`). Bars on one axis are centred with padding by R1;
@@ -146,6 +176,79 @@ fn judge(prep: &Prepared, instance: Instance) -> (ShotClassification, Mask) {
     };
     let class = classify_instance(&input, config::GATE_MARGIN_PX, params);
     (class, instance.mask)
+}
+
+/// Headcut gate: fire only when at least one of Left and Right is free (not touched). Covers all
+/// four cases: `0000`, `0010` (R touched), `0001` (L touched), etc. — only `01x1` and `0101` /
+/// `1111` style (both L and R touched) are refused, because then there's no "room on a side".
+fn headcut_eligible(class: &ShotClassification) -> bool {
+    let left = class.touches_edges.contains(&Edge::Left);
+    let right = class.touches_edges.contains(&Edge::Right);
+    !(left && right)
+}
+
+/// Build the headcut sub-section from `prep.model_input` and the mask, call `yxunomei`, and
+/// return the cut y in `working` coordinates — `None` when there is no mask box, no face, or
+/// the detected cut lands at the top/bottom of the section (which `yxunomei` already refuses).
+///
+/// Section geometry per the plan: height = top third of the segmask (in model-input coords), side =
+/// `max(top-third-height, segmask-width + margin)` with the trim-margin convention
+/// (`max(TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE * segmask_width)`). The side is clamped to the
+/// model-input bounds, so a mask that reaches the model-input edges yields a smaller section
+/// (SCRFD doesn't require a strict square).
+fn plan_headcut(prep: &Prepared, mask: &Mask) -> Option<u32> {
+    let bbox = mask_bounds(mask)?;
+    let crop = prep.crop;
+    let (mw, mh) = prep.model_input.dimensions();
+    if mw == 0 || mh == 0 || bbox.w == 0 || bbox.h == 0 {
+        return None;
+    }
+
+    // Mask box in model-input coords (mask lives in working coords; model_input is cut from
+    // working at `crop`). Clamp into the model-input frame.
+    let mx = bbox.x.saturating_sub(crop.x);
+    let my = bbox.y.saturating_sub(crop.y);
+    let mx = mx.min(mw.saturating_sub(1));
+    let my = my.min(mh.saturating_sub(1));
+    let mw_box = bbox.w.min(mw.saturating_sub(mx));
+    let mh_box = bbox.h.min(mh.saturating_sub(my));
+    if mw_box == 0 || mh_box == 0 {
+        return None;
+    }
+
+    let top_third_h = mh_box.div_ceil(3);
+    let margin = ((config::TRIM_MARGIN_SHARE * mw_box as f64).round() as u32)
+        .max(config::TRIM_MARGIN_MIN_PX);
+    let side = top_third_h.max(mw_box + margin);
+
+    // Centre the square horizontally on the mask box; it starts at the mask box's top.
+    let cx = mx + mw_box / 2;
+    let half = side / 2;
+    let section_x = cx.saturating_sub(half).min(mw.saturating_sub(1));
+    let section_w = side.min(mw.saturating_sub(section_x));
+    let section_y = my;
+    let section_h = side.min(mh.saturating_sub(section_y));
+    if section_w == 0 || section_h == 0 {
+        return None;
+    }
+
+    let section =
+        image::imageops::crop_imm(&prep.model_input, section_x, section_y, section_w, section_h)
+            .to_image();
+
+    let cropped = maria_antonieta::yxunomei(&section)?;
+    let cut_y_section = section_h.saturating_sub(cropped.height());
+    if cut_y_section == 0 {
+        return None;
+    }
+
+    // section → model_input → working.
+    let cut_y_model_input = section_y + cut_y_section;
+    let cut_y_working = (cut_y_model_input + crop.y).min(prep.working.height().saturating_sub(1));
+    if cut_y_working == 0 {
+        return None;
+    }
+    Some(cut_y_working)
 }
 
 /// The tight box around everything the mask marks, or `None` for an empty mask.
@@ -290,11 +393,51 @@ fn trace_stage_90(
 /// session is paid for, off the batch's critical path.
 pub fn preflight() -> Result<(), String> {
     model()?;
+    // Headcut session is built here too, for the same reason BiRefNet is: a corrupt or missing
+    // embedded model is an environment fault, which must stop the run loudly rather than fail
+    // every image once headcutting is enabled.
+    maria_antonieta::preflight()?;
     Ok(())
 }
 
 /// Where the classifier runs — a graphics card's name, or "CPU" — once [`preflight`] has built it.
 pub fn backend() -> String {
     model().map(|m| m.backend().to_owned()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Headcut gate fires when at least one of Left and Right is free. The only skip case is
+    /// when both are touched (the subject fills the width edge-to-edge, no room on a side).
+    #[test]
+    fn headcut_gate_fires_when_a_side_is_free() {
+        let mk = |edges: Vec<Edge>| ShotClassification {
+            touches_edges: edges,
+            ..ShotClassification::default()
+        };
+
+        // 0000 — free-standing: both sides free, gate passes.
+        assert!(headcut_eligible(&mk(vec![])));
+        // 1000 — Top only: both L and R free, gate passes.
+        assert!(headcut_eligible(&mk(vec![Edge::Top])));
+        // 0001 — Left touched, Right free: gate passes.
+        assert!(headcut_eligible(&mk(vec![Edge::Left])));
+        // 0010 — Right touched, Left free: gate passes.
+        assert!(headcut_eligible(&mk(vec![Edge::Right])));
+        // 1010 — Top + Right: Left free, gate passes.
+        assert!(headcut_eligible(&mk(vec![Edge::Top, Edge::Right])));
+
+        // 0101 — Left + Right: both pinned, gate refuses.
+        assert!(!headcut_eligible(&mk(vec![Edge::Left, Edge::Right])));
+        // 1111 — all four: both pinned, gate refuses.
+        assert!(!headcut_eligible(&mk(vec![
+            Edge::Top,
+            Edge::Right,
+            Edge::Bottom,
+            Edge::Left
+        ])));
+    }
 }
 

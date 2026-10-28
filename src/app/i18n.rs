@@ -59,6 +59,20 @@ pub fn drop_prompt(lang: Lang) -> [&'static str; 2] {
     }
 }
 
+/// The question asked before a batch starts: headcutting on or off for every image. It takes the
+/// place of a callout's text. The answer key is `Y` in every language, so the `(Y/N)` stays as
+/// written.
+pub fn headcuts_question(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Enable headcutting for ALL images? (Y/N)",
+        Lang::Es => "¿Recortar cabezas para TODAS las imágenes? (Y/N)",
+        Lang::Fr => "Découper les têtes de TOUTES les images ? (Y/N)",
+        Lang::Nl => "Hoofden croppen op ALLE afbeeldingen? (Y/N)",
+        Lang::It => "Attivare il TaglioTeste per TUTTE le immagini? (Y/N)",
+        Lang::De => "KopfKnipf für ALLE Bilder aktivieren? (Y/N)",
+    }
+}
+
 /// Callout of the start and finish screens.
 pub fn close_line(lang: Lang) -> &'static str {
     match lang {
@@ -179,7 +193,7 @@ mod tests {
     fn callouts_leave_room_for_the_slug() {
         let budget = theme::WIDTH - 3 - theme::slug().chars().count() - 1;
         for lang in LANGS {
-            for text in [close_line(lang), interrupt_hint(lang)] {
+            for text in [close_line(lang), interrupt_hint(lang), headcuts_question(lang)] {
                 assert!(text.chars().count() <= budget, "{text:?} exceeds {budget}");
             }
         }

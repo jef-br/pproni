@@ -50,13 +50,30 @@ pub fn folder_url(path: &Path) -> Option<String> {
     Some(format!("file:///{s}"))
 }
 
+#[link(name = "msvcrt")]
+extern "C" {
+    fn _getch() -> i32;
+}
+
 /// Block until the user presses any key (no Enter required).
 pub fn pause() {
-    #[link(name = "msvcrt")]
-    extern "C" {
-        fn _getch() -> i32;
-    }
     unsafe {
         let _ = _getch();
+    }
+}
+
+/// Read lines until one is `Y`/`y` (true) or `N`/`n` (false), each followed by Enter. Anything else
+/// is asked for again. If stdin closes, the answer is no rather than waiting forever.
+pub fn ask_yes_no() -> bool {
+    loop {
+        let mut line = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(n) if n > 0 => match line.trim() {
+                "Y" | "y" => return true,
+                "N" | "n" => return false,
+                _ => {}
+            },
+            _ => return false,
+        }
     }
 }

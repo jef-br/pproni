@@ -1,7 +1,7 @@
 # Pproni work state
 
 Read this first. Keep it short. Update it at the end of each work session.
-Last updated: 2026-10-23.
+Last updated: 2026-10-28.
 
 ## Decided
 * The 512 model (`birefnet_lite_512.onnx`) is canonical — proven to work, and what `build.rs`
@@ -76,6 +76,30 @@ Last updated: 2026-10-23.
   `core::framing`); none was turned into a `jbpair`.
 * The user suggested erosion/dilation to plug holes in trim 1's region if a trim failed; not needed so
   far (`product_box` already closes with a 2x2 window).
+
+## Decided 2026-10-28: headcuts (`core::preprocessor::maria_antonieta`)
+* Headcut cuts a human's head off above the philtrum so the subject bleeds at the top (EIX=1xxx).
+  Gated on `Options::enable_headcuts` and on EIX having at least one of Left or Right free.
+* Pipeline order (chosen as the most efficient of four options): BiRefNet first -> EIX gate ->
+  philtrum detector -> crop -> re-judge -> routes. BiRefNet runs once; the small philtrum model
+  runs only on images that pass the gate; the Peel-style re-judge replaces a second BiRefNet pass.
+* Hook site: post-classify, pre-framing, in `core::process_file`. Mirrors the framing Peel path.
+* Public surface in the module: `cut_above_philtrum(section) -> Option<RgbImage>` and `preflight()`.
+  `cut_above_philtrum` takes a square sub-section of `prep.model_input` (height = top third of the segmask,
+  side = `max(top-third-height, segmask-width + margin)` with the trim-margin convention
+  `max(TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE * segmask_section_width)`) and returns the section
+  with everything above the detected philtrum removed, or `None` (zero or more than one face).
+* Model: YuNet (OpenCV Zoo, `face_detection_yunet_2026may.onnx`, ~224 KB, BSD-3-Clause). Chosen
+  over the originally-planned SCRFD-500M-bnkps because SCRFD ships under InsightFace's
+  non-commercial licence. Keypoint order [right_eye, left_eye, nose, mouth_right, mouth_left];
+  philtrum y = midpoint of nose-landmark y and the average of the two mouth-corner y's.
+  Back-of-head / non-human / multi-face all land on `None`.
+* Embedding: second slot in `build.rs` (`PHILTRUM_MODEL_FILE`, `encrypt_slot`). Plaintext in
+  `models/face_detection_yunet_2026may.onnx` (gitignored); encrypted blob `philtrum.onnx.enc` and
+  `philtrum_key.rs` emit next to the BiRefNet ones. `core::preflight` builds the session at
+  startup — a corrupt or missing model aborts loudly, matching the BiRefNet contract.
+* Open: diagram node for `maria_antonieta` not yet added to `docs/diagrams/JBA2B.drawio.svg`
+  (needs the draw.io editor). Plan file: `~/.claude/plans/build-a-plan-with-virtual-hartmanis.md`.
 
 ## Decided 2026-10-23: bars are always centred (user)
 * `Decision::Crop` is gone. Every bars case (trim 1 cut both sides of one axis, similar widths, subject

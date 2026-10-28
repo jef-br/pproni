@@ -13,9 +13,11 @@
 //! `original`. Hand it the same image twice and the scale between them collapses to 1.0, which
 //! reduces the refinement to a no-op.
 
+pub mod maria_antonieta;
 pub mod optimizer;
 
 use super::config::WORKING_SIZE;
+use super::options::Options;
 use super::shot_classifier::geometry::Rect;
 use super::trace;
 use fast_image_resize as fir;
@@ -80,8 +82,8 @@ pub struct Prepared {
 }
 
 /// Load and homogenize in one call — what the pipeline uses.
-pub fn prepare(path: &Path) -> Result<Prepared, String> {
-    preprocess(load(path)?)
+pub fn prepare(path: &Path, options: &Options) -> Result<Prepared, String> {
+    preprocess(load(path)?, options)
 }
 
 /// Decode `path`, apply its EXIF orientation, and keep its ICC profile for the sRGB conversion.
@@ -106,7 +108,7 @@ pub fn load(path: &Path) -> Result<Decoded, String> {
 /// optimised crop the model sees.
 ///
 /// `Err` when the optimiser finds nothing but backdrop: the image is not processed.
-pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
+pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, String> {
     let mut original = flatten_onto_white(&decoded.image);
     trace::image(trace::stage::ORIGINAL, "Preprocess ingress: Decode, EXIF rotation, flatten alpha to white", || original.clone());
 
@@ -168,6 +170,8 @@ pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
     let (model_input, crop) = (both.model_input, both.crop);
     let trims = Trims { first: both.first, second: both.second };
     trace::note(|| format!("Optimiser {crop:?}\nworking copy: {}x{}", working.width(), working.height()));
+
+    let _ = options; // Preserved for callers; headcutting is driven post-classify in `core::process_file`.
     Ok(Prepared { original, working, model_input, crop, trims, framing: Framing::Free, letterbox })
 }
 
@@ -279,7 +283,7 @@ mod tests {
             }
         }
 
-        let prep = preprocess(Decoded { image: DynamicImage::ImageRgb8(img.clone()), icc_profile: None }).unwrap();
+        let prep = preprocess(Decoded { image: DynamicImage::ImageRgb8(img.clone()), icc_profile: None }, &Options::default()).unwrap();
 
         assert_eq!(prep.working, img, "working must be the untouched (here: not even resized) image");
         // A 30x30 product: the margin is the 10 px floor on every side.
@@ -311,6 +315,6 @@ mod tests {
     #[test]
     fn a_blank_image_is_an_error() {
         let img = RgbImage::from_pixel(64, 64, Rgb([240, 240, 240]));
-        assert!(preprocess(Decoded { image: DynamicImage::ImageRgb8(img), icc_profile: None }).is_err());
+        assert!(preprocess(Decoded { image: DynamicImage::ImageRgb8(img), icc_profile: None }, &Options::default()).is_err());
     }
 }

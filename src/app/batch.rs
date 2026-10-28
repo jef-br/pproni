@@ -6,6 +6,7 @@
 use super::i18n::Lang;
 use super::progress::Progress;
 use pproni::core;
+use pproni::core::options::Options;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,13 +26,15 @@ const SUPPORTED: &[&str] = &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
 
 /// Process every supported image in `input` into `output`, in parallel across cores. Successfully
 /// processed originals are moved to `backup`; failures are left in `input` untouched. `footer` is
-/// the block of lines drawn under the progress bar and held in place for the whole run.
+/// the block of lines drawn under the progress bar and held in place for the whole run. `options`
+/// is the one set of per-run settings, handed unchanged to every file.
 pub fn run(
     input: &Path,
     output: &Path,
     backup: &Path,
     footer: &[String],
     lang: Lang,
+    options: &Options,
 ) -> Summary {
     let start = Instant::now();
     let _ = std::fs::create_dir_all(output);
@@ -48,7 +51,7 @@ pub fn run(
         if let Some(parent) = backup_dest.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        match core::process_file(src, dest, backup_dest) {
+        match core::process_file(src, dest, backup_dest, options) {
             Ok(()) => {
                 ok.fetch_add(1, Ordering::Relaxed);
             }

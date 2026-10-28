@@ -28,17 +28,17 @@ use std::sync::OnceLock;
 /// Stage numbers. A group takes a block of ten so a stage can be added without renumbering.
 pub mod stage {
     pub const ORIGINAL: u8 = 1; // Preprocessing stage: image 01, exif+alpha+flat+color-profile
-    pub const LETTERBOX: u8 = 2; // Preprocessing stage: the flat-bar check on the original
-                                 // - bar along each edge: green = backdrop, orange = flat in
-                                 //   another colour, magenta = varied
-                                 // - dimmed = bars the check would trim
-                                 // - cyan = product proxy; the bright rest is where texture is measured
-                                 // Emitted for every image
-    pub const TRIM: u8 = 3; // Preprocessing stage: the two trims on the colour-balanced working copy
-                            // - cyan = trim 1's tight box
-                            // - yellow = trim 2's tight box (drawn only when it replaced trim 1)
-                            // - green = the backed-off crop BiRefNet is shown
-                            // Emitted for every image
+    pub const LETTERBOX: u8 = 2;// Preprocessing stage: the flat-bar check on the original
+                                // - bar along each edge: green = backdrop, orange = flat in
+                                //   another colour, magenta = varied
+                                // - dimmed = bars the check would trim
+                                // - cyan = product proxy; the bright rest is where texture is measured
+                                // Emitted for every image
+    pub const TRIM: u8 = 3;     // Preprocessing stage: the two trims on the colour-balanced working copy
+                                // - cyan = trim 1's tight box
+                                // - yellow = trim 2's tight box (drawn only when it replaced trim 1)
+                                // - green = the backed-off crop BiRefNet is shown
+                                // Emitted for every image
     pub const PRIMARY: u8 = 10; // Shot-Classifier stage:
                                 // - 10 = model input
                                 // - +1 = ImageNet-normalised input
@@ -72,8 +72,6 @@ pub fn coverage_pct(mask: &Mask) -> f64 {
     let fg = mask.data.iter().filter(|&&v| v > 0).count();
     100.0 * fg as f64 / (mask.data.len().max(1)) as f64
 }
-
-// ---- the switch -------------------------------------------------------------------------------
 
 /// Held for the length of one image's run. Dropping it writes that image's `log.txt`.
 pub struct Session {

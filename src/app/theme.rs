@@ -11,6 +11,7 @@ pub const WHITE: &str = "\x1b[38;2;255;255;255m"; // #ffffff — status lines, c
 pub const TEAL: &str = "\x1b[38;2;51;204;187m"; // #33ccbb — progress bar, start link
 pub const GREY: &str = "\x1b[38;2;102;102;102m"; // #666666 — banner title and tagline
 pub const DARK: &str = "\x1b[38;2;68;68;68m"; // #444444 — rules and the version slug
+pub const MAGENTA: &str = "\x1b[38;2;255;85;255m"; // #ff55ff — the headcut question
 pub const BOLD: &str = "\x1b[1m";
 pub const RESET: &str = "\x1b[0m";
 
@@ -50,6 +51,23 @@ pub fn callout(text: &str) -> String {
         " ".repeat(INDENT),
         " ".repeat(gap)
     )
+}
+
+/// A callout that asks a question: the marker and `text` in [`MAGENTA`], the slug as usual.
+pub fn question_callout(text: &str) -> String {
+    let slug = slug();
+    let used = MARKER_WIDTH + text.chars().count() + slug.chars().count();
+    let gap = WIDTH.saturating_sub(used).max(1);
+    format!(
+        "{MAGENTA}{}⏵ {BOLD}{text}{RESET}{}{DARK}{slug}{RESET}",
+        " ".repeat(INDENT),
+        " ".repeat(gap)
+    )
+}
+
+/// The 1-based column one space after `text` on a callout line — where the answer is typed.
+pub fn answer_column(text: &str) -> usize {
+    MARKER_WIDTH + text.chars().count() + 2
 }
 
 /// `V1.0.0 – PPTech`, the slug sitting at the right end of every callout line.

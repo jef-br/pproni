@@ -5,7 +5,8 @@
 //! bar (running), or the output folder (finish). Each clears the console first, so a screen
 //! replaces the one before it instead of scrolling under it. `theme` owns every rule and colour.
 
-use super::{batch, console, desktop, header, i18n, theme};
+use super::{batch, console, desktop, header, i18n, progress, theme};
+use pproni::core::options::Options;
 use std::io::Write;
 use std::path::Path;
 
@@ -40,17 +41,10 @@ pub fn run() {
         return;
     }
 
-    let _ = std::fs::create_dir_all(&output);
-    let _ = std::fs::create_dir_all(&backup);
-
-    open_screen(&[
+    let status = [
         format!("{}{}", i18n::backup_label(lang), backup.display()),
         format!("{}{}", i18n::output_label(lang), output.display()),
-    ]);
-    // The blank line above the bar. `Progress` draws from the bar down and rewinds only over its
-    // own block, so this one has to be printed here — it is never repainted.
-    println!();
-
+    ];
     // The bar is drawn first and the callout under it stays put; `Progress` walks the cursor back
     // over these lines on every redraw, so they have to be handed over rather than printed here.
     let footer = vec![
@@ -59,7 +53,18 @@ pub fn run() {
         theme::callout(i18n::interrupt_hint(lang)),
         theme::rule(),
     ];
-    let summary = batch::run(&input, &output, &backup, &footer, lang);
+
+    let options = Options { enable_headcuts: ask_headcuts(&status, lang) };
+
+    let _ = std::fs::create_dir_all(&output);
+    let _ = std::fs::create_dir_all(&backup);
+
+    open_screen(&status);
+    // The blank line above the bar. `Progress` draws from the bar down and rewinds only over its
+    // own block, so this one has to be printed here — it is never repainted.
+    println!();
+
+    let summary = batch::run(&input, &output, &backup, &footer, lang, &options);
 
     open_screen(&i18n::finished(
         lang,
@@ -79,6 +84,29 @@ pub fn run() {
     console::pause();
 }
 
+/// The one question before the batch. It is the running screen with everything dimmed to the
+/// slug's grey and an empty bar, and the question takes the callout line where the running screen
+/// says "Close this window…". A blinking block cursor waits right after it. The real running
+/// screen then redraws over this one.
+fn ask_headcuts(status: &[String; 2], lang: i18n::Lang) -> bool {
+    let question = i18n::headcuts_question(lang);
+    draw_top(status, true);
+    println!();
+    println!("{}", progress::dimmed_empty_bar());
+    println!();
+    println!("{}", theme::rule());
+    println!("{}", theme::question_callout(question));
+    println!("{}", theme::rule());
+    // Back up two lines to the question and out to the column after it; `ESC[1 q` is a blinking
+    // block cursor, and `ESC[0 q` below hands the cursor back to the terminal's own setting.
+    print!("\x1b[2A\x1b[{}G\x1b[1 q", theme::answer_column(question));
+    let _ = std::io::stdout().flush();
+    let answer = console::ask_yes_no();
+    print!("\x1b[0 q");
+    let _ = std::io::stdout().flush();
+    answer
+}
+
 /// `drop_prompt` as owned strings — the other two screens build their status lines with
 /// `format!`, so [`open_screen`] takes `String`s and this one has to match.
 fn drop_prompt_lines(lang: i18n::Lang) -> [String; 2] {
@@ -90,10 +118,16 @@ fn drop_prompt_lines(lang: i18n::Lang) -> [String; 2] {
 /// running screen's body is drawn by `Progress`, which starts at the bar. The caller follows with
 /// the body and [`print_footer`].
 fn open_screen(status: &[String; 2]) {
+    draw_top(status, false);
+}
+
+/// [`open_screen`], with `dim` painting the banner and status lines in the slug's grey.
+fn draw_top(status: &[String; 2], dim: bool) {
+    let colour = if dim { theme::DARK } else { theme::WHITE };
     console::clear();
-    header::print();
+    header::print(dim);
     for line in status {
-        println!("{}{line}{}", theme::WHITE, theme::RESET);
+        println!("{colour}{line}{}", theme::RESET);
     }
     println!("{}", theme::rule());
     println!();
