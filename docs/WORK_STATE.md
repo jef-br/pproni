@@ -194,8 +194,8 @@ whole-frame guard, whole-frame retry, tolerance numbers) were not asked for and 
   gradient backdrop falls outside the sampled colour range, so the crop stays wide (836x965 of 1000x1000).
   **Note:** the trim may be under active refactor in another session (plan
   `~/.claude/plans/read-these-plans-in-elegant-teacup.md`) — confirm there before acting on this.
-* Idea, **still relevant**: BiRefNet applies ImageNet normalisation itself, so the image gets
-  normalised twice (colour balance, then ImageNet) — still implemented under the 512 model. Possible
-  last-resort counter-move. Not started.
+* **Removed 2026-10-29 (user):** the ImageNet counter-balance (`counter_balance_for_birefnet`, commit
+  7e5ed75). It squeezed the model input and gave empty masks on the 104051881/104051882 boot photos
+  (0% with it, 7-10% without). The model now sees the colour-balanced crop directly.
 * **Stale (pre-512, int8).** The "change one input at a time on 102454579_det5 and read int8's best
   score" experiment — int8-specific, no longer relevant under 512.f
