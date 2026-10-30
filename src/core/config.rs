@@ -6,6 +6,9 @@
 /// JPEG quality for the saved output.
 pub const JPEG_QUALITY: u8 = 95;
 
+/// Gates the headcut question. If false, defaults pproni to act without headcuts. Turn to true while developping to enable headcuts.
+pub const PERMIT_HEADCUTS:bool = false;
+
 // ---- Shot classification ----------------------------------------------------------------------
 //
 // The classifier runs on a downscaled *working* copy, and its pass-2 refinement then works against

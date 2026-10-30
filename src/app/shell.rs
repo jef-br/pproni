@@ -54,7 +54,7 @@ pub fn run() {
         theme::rule(),
     ];
 
-    let options = Options { enable_headcuts: ask_headcuts(&status, lang) };
+    let options = Options { enable_headcuts: pproni::core::config::PERMIT_HEADCUTS && ask_headcuts(&status, lang) };
 
     let _ = std::fs::create_dir_all(&output);
     let _ = std::fs::create_dir_all(&backup);
