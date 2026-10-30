@@ -1,8 +1,8 @@
 //! R1 — the subject reaches at most three edges (EIX `0000` through any three bits).
 //!
-//! Build a square around the subject ([`plan`]), then fill whatever it reaches past the image by
-//! stretching the background bands outward ([`compose`]). A side that lands inside the image crops
-//! instead — same code, no branch.
+//! Cut the square it is given around the subject (planned by `shot_classifier::plan`), then fill
+//! whatever it reaches past the image by stretching the background bands outward ([`compose`]). A
+//! side that lands inside the image crops instead — same code, no branch.
 //!
 //! ## One rule, not six behaviours
 //!
@@ -35,15 +35,12 @@
 pub mod compose;
 pub mod extend;
 pub mod inpaint;
-pub mod plan;
 
 use super::super::super::config;
-use super::super::super::preprocessor::{Framing, Prepared};
-use super::{fallback, Shot};
-use crate::core::shot_classifier::{geometry::Rect, Edge, Mask};
-use crate::core::trace;
+use super::super::super::preprocessor::Prepared;
+use crate::core::shot_classifier::route::{R1Job, Shot};
+use crate::core::shot_classifier::Mask;
 use image::RgbImage;
-use plan::{Pins, SquarePlan};
 
 /// The product silhouette, grown outward, as the span it covers on every row and every column of
 /// the *original* image. The grown silhouette is the product band: copied untouched, never a stretch
@@ -205,74 +202,29 @@ fn working_scale(prep: &Prepared) -> f32 {
         .max(1.0)
 }
 
-pub fn apply(prep: &Prepared, shot: Shot<'_>) -> RgbImage {
-    // An empty mask means the classifier marked nothing: there is no subject to centre on, so the
-    // safe framing of R3 is a better answer than a square around an arbitrary point.
-    let Some(subject) = shot.subject_bbox_in(prep) else {
-        trace::note(|| "R1: the mask is empty, so there is no subject to centre on: using R3 framing".into());
-        return fallback::apply(prep);
-    };
-    // A textured scene with flat letterbox/pillarbox bars must be re-framed, not stretched: R1's
-    // stretch invents a smeared band across a textured overhang (measured on 268/46). The
-    // preprocessor's detector (`prep.letterbox`) fires only on genuine bars-plus-textured-interior —
-    // a freestanding product on a plain backdrop has flat edges on both axes, so it never fires and
-    // `EIX0000` cannot flip. Runs after the subject guard so the mask gives the real subject box.
-    if let Some(keep) = prep.letterbox {
-        trace::note(|| format!("R1 → Part C: textured scene, reframing on the trimmed {keep:?} rather than stretching"));
-        let trimmed = image::imageops::crop_imm(&prep.original, keep.x, keep.y, keep.w, keep.h).to_image();
-        return extend::reframe_to_square(&trimmed, subject_into(subject, keep));
+/// Carry out the job the classifier chose: reframe the trimmed picture of a textured scene, or cut
+/// the planned square and stretch the background out to fill it. Which of the two, and where the
+/// square goes, was decided before this is called.
+pub fn apply(prep: &Prepared, shot: Shot<'_>, job: R1Job) -> RgbImage {
+    match job {
+        R1Job::Reframe { keep, subject } => {
+            let trimmed = image::imageops::crop_imm(&prep.original, keep.x, keep.y, keep.w, keep.h).to_image();
+            extend::reframe_to_square(&trimmed, subject)
+        }
+        R1Job::Stretch(plan) => {
+            let silhouette =
+                Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height(), clearance_px(prep));
+            compose::compose(&prep.original, &plan, &silhouette, shot.bgc)
+        }
     }
-    // `None` means no square can respect the bled edges — R3 frames the image safely rather than R1
-    // guessing.
-    let Some(plan) = plan_square(prep, subject, &shot.class.touches_edges) else {
-        trace::note(|| "R1: no square can respect the bled edges: using R3 framing".into());
-        return fallback::apply(prep);
-    };
-    let silhouette =
-        Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height(), clearance_px(prep));
-    compose::compose(&prep.original, &plan, &silhouette, shot.bgc)
-}
-
-/// Where R1's square goes.
-///
-/// Normally it is planned from the subject: the edges the subject bleeds off are the ones the square
-/// may not move ([`SquarePlan::new`]). When `core::framing` found white bars on one axis
-/// ([`Framing::CentreContent`]) it is cut from the content box instead: as wide as the box's longer
-/// side, no margin, centred on the box — equal padding either side of the shorter axis, aligned on
-/// nothing. Whatever of the square falls outside the picture is filled as always.
-pub fn plan_square(prep: &Prepared, subject: Rect, touches: &[Edge]) -> Option<SquarePlan> {
-    if let Framing::CentreContent(content) = prep.framing {
-        let (fx, fy) = (
-            prep.original.width() as f32 / prep.working.width().max(1) as f32,
-            prep.original.height() as f32 / prep.working.height().max(1) as f32,
-        );
-        let (x0, y0) = ((content.x as f32 * fx).round() as i64, (content.y as f32 * fy).round() as i64);
-        let (w, h) = ((content.w as f32 * fx).round() as i64, (content.h as f32 * fy).round() as i64);
-        let side = w.max(h).max(1);
-        return Some(SquarePlan {
-            side: side as u32,
-            x: x0 + (w - side).div_euclid(2),
-            y: y0 + (h - side).div_euclid(2),
-        });
-    }
-    SquarePlan::new(subject, config::R1_MARGIN, Pins::from_edges(touches))
-}
-
-/// Re-express `subject` (original coordinates) relative to the trimmed `keep` sub-rect, clamped to
-/// it. The trimmed bars are background, so the subject normally lies wholly inside `keep`; the
-/// clamp only guards a subject box that grazes a trimmed band.
-fn subject_into(subject: Rect, keep: Rect) -> Rect {
-    let x0 = subject.x.max(keep.x);
-    let y0 = subject.y.max(keep.y);
-    let x1 = (subject.x + subject.w).min(keep.x + keep.w);
-    let y1 = (subject.y + subject.h).min(keep.y + keep.h);
-    Rect { x: x0 - keep.x, y: y0 - keep.y, w: x1.saturating_sub(x0), h: y1.saturating_sub(y0) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::preprocessor::{Framing, Trims};
+    use crate::core::shot_classifier::plan::{Pins, SquarePlan};
+    use crate::core::shot_classifier::route::{decide, send, subject_into};
     use crate::core::shot_classifier::{geometry::Rect, Mask, ShotClassification};
     use image::Rgb;
 
@@ -292,7 +244,8 @@ mod tests {
     fn run(img: RgbImage, mask: &Mask) -> RgbImage {
         let prep = Prepared { original: img.clone(), working: img.clone(), model_input: img.clone(), crop: Rect { x: 0, y: 0, w: img.width(), h: img.height() }, trims: Trims::NONE, framing: Framing::Free, letterbox: None };
         let class = ShotClassification::default();
-        apply(&prep, Shot { class: &class, mask, bgc: None })
+        let shot = Shot { class: &class, mask, bgc: None };
+        send(&prep, Some(shot), &decide(&prep, Some(shot)).route)
     }
 
     /// Build the square for `img` straight through `compose`, growing the silhouette by only 2 px so
@@ -359,34 +312,6 @@ mod tests {
         assert_eq!(g[2], (5, 7));
         assert_eq!(g[7], g[2], "a far line borrows the nearest grown line");
         assert_eq!(g[4], g[2]);
-    }
-
-    #[test]
-    fn white_bars_are_centred_with_equal_padding_and_not_aligned_on_the_subject() {
-        // A 300x400 picture with 100 px bars each side of a 100 px wide content box, full height.
-        let img = RgbImage::from_pixel(300, 400, Rgb([255, 255, 255]));
-        let mut prep = Prepared {
-            original: img.clone(),
-            working: img.clone(),
-            model_input: img.clone(),
-            crop: Rect { x: 0, y: 0, w: 300, h: 400 },
-            trims: Trims::NONE,
-            framing: Framing::CentreContent(Rect { x: 100, y: 0, w: 100, h: 400 }),
-            letterbox: None,
-        };
-        // The subject hugs the right of the content: a subject-aligned plan would not be centred.
-        let subject = Rect { x: 150, y: 100, w: 50, h: 300 };
-        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
-        assert_eq!((plan.side, plan.x, plan.y), (400, -50, 0), "400 square, 150 px of padding split 75/75 about the box");
-        // Scaled the same way when the working copy is smaller than the original.
-        prep.working = RgbImage::from_pixel(150, 200, Rgb([255, 255, 255]));
-        prep.framing = Framing::CentreContent(Rect { x: 50, y: 0, w: 50, h: 200 });
-        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
-        assert_eq!((plan.side, plan.x, plan.y), (400, -50, 0));
-        // Without the framing the subject decides, as before.
-        prep.framing = Framing::Free;
-        let plan = plan_square(&prep, subject, &[Edge::Bottom]).unwrap();
-        assert_ne!((plan.side, plan.x), (400, -50));
     }
 
     #[test]
@@ -492,12 +417,13 @@ mod tests {
             letterbox: Some(keep),
         };
         let class = ShotClassification::default();
-        let out = apply(&prep, Shot { class: &class, mask: &mask, bgc: None });
+        let shot = Shot { class: &class, mask: &mask, bgc: None };
+        let out = send(&prep, Some(shot), &decide(&prep, Some(shot)).route);
 
         // The route output is exactly the reframe of the trimmed interior — proof it took the Part C
         // path, not R1's stretch, whichever reframe priority won.
         let trimmed = image::imageops::crop_imm(&img, keep.x, keep.y, keep.w, keep.h).to_image();
-        let bbox = Shot { class: &class, mask: &mask, bgc: None }.subject_bbox_in(&prep).unwrap();
+        let bbox = shot.subject_bbox_in(&prep).unwrap();
         let expected = extend::reframe_to_square(&trimmed, subject_into(bbox, keep));
         assert_eq!(out, expected, "a textured scene must reframe, not R1-stretch");
         assert_eq!(out.width(), out.height(), "reframed output is square");

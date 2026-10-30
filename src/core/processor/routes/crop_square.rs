@@ -4,7 +4,7 @@
 //! there is no usable subject to frame around or because the frame cannot grow to hold one. It
 //! adds nothing: it takes the largest square the image already contains, centred.
 //!
-//! Three verdicts arrive here (see [`super::Route::select`]):
+//! Three verdicts arrive here (see `shot_classifier::route::decide`):
 //!
 //! * **The mask covers too little of the frame to be a subject.** A close-up where the segmenter
 //!   latched onto one high-contrast detail. Cropping to that detail magnifies a speck; padding
@@ -26,7 +26,7 @@
 //! needs it yet.
 
 use super::super::super::preprocessor::Prepared;
-use super::Shot;
+use crate::core::shot_classifier::route::Shot;
 use image::RgbImage;
 
 pub fn apply(prep: &Prepared, _shot: Shot<'_>) -> RgbImage {

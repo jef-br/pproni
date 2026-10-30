@@ -1,4 +1,4 @@
-//! Imaging core: load → preprocess → classify → frame → dispatch → export.
+//! Imaging core: load → preprocess → classify → frame → route (the classifier's last step) → export.
 
 pub mod config;
 pub mod exporter;
@@ -30,21 +30,48 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
         if let Some((class, mask)) = classified.as_ref() {
             if headcut_eligible(class) {
                 if let Some(cut_y) = plan_headcut(&prep, mask) {
-                    trace::note(|| format!("headcut: cut above working y={cut_y}"));
-                    let frame = Rect {
+                    let mut frame = Rect {
                         x: 0,
                         y: cut_y,
                         w: prep.working.width(),
                         h: prep.working.height().saturating_sub(cut_y),
                     };
-                    let instance = Instance {
-                        mask: mask.cropped(frame),
-                        bbox: Rect { x: 0, y: 0, w: frame.w, h: frame.h },
-                        class_id: 0,
-                        confidence: 1.0,
-                    };
-                    prep = peel(&prep, frame);
-                    classified = Some(judge(&prep, instance));
+                    // White bars (trim 1 cut both sides of one axis) are padding, not picture: leave them
+                    // out of the cut picture, and cut only if what is left below the philtrum is deep
+                    // enough. If not, no headcut: the bars rule below centres the whole picture.
+                    let (bars, why) = framing::decide(
+                        prep.working.dimensions(),
+                        prep.trims.first,
+                        prep.trims.second,
+                        class.touches_edges.len(),
+                        mask_bounds(mask),
+                    );
+                    let mut cut = true;
+                    if let framing::Decision::Centre(content) = bars {
+                        let mask_w = mask_bounds(mask).map_or(0, |b| b.w);
+                        let (bars_frame, deep_enough) = headcut_in_bars(content, cut_y, mask_w);
+                        frame = bars_frame;
+                        cut = deep_enough;
+                        trace::note(|| {
+                            format!(
+                                "headcut on bars: content {content:?}, cut y={cut_y}, room below the cut {}px vs mask width {mask_w}px (at most {:.0}% short allowed): {}. {why}",
+                                frame.h,
+                                config::HEADCUT_BARS_MAX_SHORTFALL * 100.0,
+                                if cut { "headcut done, bars left out" } else { "headcut not done, picture centred on the bars" }
+                            )
+                        });
+                    }
+                    if cut {
+                        trace::note(|| format!("headcut: cut above working y={cut_y}"));
+                        let instance = Instance {
+                            mask: mask.cropped(frame),
+                            bbox: Rect { x: 0, y: 0, w: frame.w, h: frame.h },
+                            class_id: 0,
+                            confidence: 1.0,
+                        };
+                        prep = peel(&prep, frame);
+                        classified = Some(judge(&prep, instance));
+                    }
                 }
             }
         }
@@ -98,10 +125,10 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
         .and_then(exporter::colors::parse_hex);
     let shot = classified
         .as_ref()
-        .map(|(class, mask)| processor::routes::Shot { class, mask, bgc });
-    let route = processor::routes::Route::select(shot.as_ref().map(|s| s.class));
-    trace_stage_90(&prep, shot.as_ref(), route, colors.as_ref());
-    let img = processor::routes::dispatch(&prep, shot);
+        .map(|(class, mask)| shot_classifier::route::Shot { class, mask, bgc });
+    let decision = shot_classifier::route::decide(&prep, shot);
+    trace_stage_90(&prep, shot.as_ref(), &decision, colors.as_ref());
+    let img = shot_classifier::route::send(&prep, shot, &decision.route);
     let shot = classified
         .as_ref()
         .zip(colors.as_ref())
@@ -142,7 +169,7 @@ fn peel(prep: &Prepared, frame: Rect) -> Prepared {
 /// Run the shot classifier: the model sees the optimiser's crop, the edge checks the true-colour image.
 ///
 /// `None` means no verdict — the model is unavailable, or inference failed on this image. That is
-/// not an error for the batch: `routes::dispatch` sends a no-verdict image down R3, which frames it
+/// not an error for the batch: `shot_classifier::route` sends a no-verdict image down R3, which frames it
 /// safely without claiming to know where the subject is.
 ///
 /// The model runs once, on trim 1's crop. The mask is carried out alongside the verdict: the exporter
@@ -185,6 +212,17 @@ fn headcut_eligible(class: &ShotClassification) -> bool {
     let left = class.touches_edges.contains(&Edge::Left);
     let right = class.touches_edges.contains(&Edge::Right);
     !(left && right)
+}
+
+/// Headcut on a bars image: the picture to cut is the content box (`working` coordinates, trim 1's box)
+/// from the philtrum `cut_y` down, so the bars stay out of it. The bool says whether the headcut may be
+/// done: the room below the cut (that box's height) may fall short of the mask's width by at most
+/// `HEADCUT_BARS_MAX_SHORTFALL`. If not, the whole picture is centred on its bars instead.
+fn headcut_in_bars(content: Rect, cut_y: u32, mask_w: u32) -> (Rect, bool) {
+    let top = cut_y.max(content.y);
+    let room = (content.y + content.h).saturating_sub(top);
+    let need = (1.0 - config::HEADCUT_BARS_MAX_SHORTFALL) * mask_w as f32;
+    (Rect { x: content.x, y: top, w: content.w, h: room }, room as f32 >= need)
 }
 
 /// Build the headcut sub-section from `prep.model_input` and the mask, call `yxunomei`, and
@@ -289,35 +327,28 @@ fn model() -> Result<&'static shot_classifier::BiRefNetModel, String> {
 
 /// Stage 90: "what we know" about the image, from which the route is picked. The same drawing
 /// code runs every image; a value that is absent (no bbox, no plan, no overhang) is simply not
-/// drawn, and not written to the log. The header names the chosen route so the picture and the
-/// routing decision are read together, not from two separate places.
+/// drawn, and not written to the log. The header names the route the classifier chose, which is the
+/// route that runs, so the picture and the routing decision are read together, not from two
+/// separate places.
 fn trace_stage_90(
     prep: &Prepared,
-    shot: Option<&processor::routes::Shot<'_>>,
-    route: processor::routes::Route,
+    shot: Option<&shot_classifier::route::Shot<'_>>,
+    decision: &shot_classifier::route::Decision,
     colors: Option<&exporter::colors::ShotColors>,
 ) {
-    use processor::routes::center_and_stretch::plan_square;
-    use processor::routes::Route;
     use shot_classifier::shotcode::{eix_bits, NO_VERDICT_EIX};
 
     if !trace::active() {
         return;
     }
 
-    let subject = shot.and_then(|s| s.subject_bbox_in(prep));
-    let plan = shot.and_then(|s| {
-        subject.and_then(|subj| plan_square(prep, subj, &s.class.touches_edges))
-    });
+    let subject = decision.subject;
+    let plan = decision.plan;
     let gated: Vec<_> = shot
         .map(|s| s.class.refinements.iter().map(|r| r.edge).collect())
         .unwrap_or_default();
     let touching: Vec<_> = shot.map(|s| s.class.touches_edges.clone()).unwrap_or_default();
-    let route_label = match route {
-        Route::CenterAndStretch => "[R1 - CenterAndStretch]",
-        Route::CropSquare => "[R2 - CropSquare]",
-        Route::Fallback => "[R3 - Fallback]",
-    };
+    let route_label = decision.route.label();
 
     let plan_tuple = plan.as_ref().map(|p| (p.x, p.y, p.side));
     let header = format!(
@@ -380,6 +411,12 @@ fn trace_stage_90(
     if !l4.is_empty() {
         trace::note(move || l4);
     }
+
+    // Line 5: why the route is not the plain reading of the verdict, when it is not.
+    if let Some(why) = &decision.note {
+        let why = why.clone();
+        trace::note(move || why);
+    }
 }
 
 /// Check the classifier can actually run, before any image is touched.
@@ -438,6 +475,24 @@ mod tests {
             Edge::Bottom,
             Edge::Left
         ])));
+    }
+
+    #[test]
+    fn a_headcut_on_bars_leaves_the_bars_out_and_needs_enough_room() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        // 46: content 1024x649 at y=187, cut at 487, mask 786 wide: 349 px of room, 590 needed.
+        let (frame, cut) = headcut_in_bars(r(0, 187, 1024, 649), 487, 786);
+        assert_eq!(frame, r(0, 487, 1024, 349));
+        assert!(!cut);
+        // A deeper picture (498 px of room, mask 571 wide, 428 needed): cut, bars still out.
+        let (frame, cut) = headcut_in_bars(r(0, 58, 669, 907), 467, 571);
+        assert_eq!(frame, r(0, 467, 669, 498));
+        assert!(cut);
+        // Exactly 75% of the mask width is enough.
+        assert!(headcut_in_bars(r(0, 0, 800, 600), 0, 800).1);
+        assert!(!headcut_in_bars(r(0, 0, 800, 599), 0, 800).1);
+        // A cut above the content box is clamped to the box's top.
+        assert_eq!(headcut_in_bars(r(0, 100, 800, 700), 40, 800).0, r(0, 100, 800, 700));
     }
 }
 

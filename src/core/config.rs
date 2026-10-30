@@ -28,8 +28,14 @@ pub const REFINE_NARROW_BAND_PX: u32 = 5;
 /// A/B <= GRAZE_RATIO_MAX → R2 → indicates a changing direction, is interpreted as the product grazing the image edge, not touching.
 pub const GRAZE_RATIO_MAX: f32 = 0.80;
 
-/// Below this fraction of the frame, a mask is not a subject. See `shotcode::mask_too_small`. JB-calibrated.
+/// Below this fraction of the frame, a mask is not a subject — unless its longest side reaches
+/// `MASK_MIN_LONGEST_SIDE_PX`. See `shotcode::mask_too_small`. JB-calibrated.
 pub const MASK_MIN_COVERAGE: f64 = 0.05;
+
+/// A mask under `MASK_MIN_COVERAGE` is still a subject when its longest side, in original pixels,
+/// is at least this long. `MIN_SIZE` less R1's margin: 800 − 8.4% = 732.8, rounded to 733. Set by the
+/// user on 2026-10-29; derived here so it follows `MIN_SIZE` and `R1_MARGIN`.
+pub const MASK_MIN_LONGEST_SIDE_PX: u32 = (MIN_SIZE as f64 * (1.0 - R1_MARGIN as f64) + 0.5) as u32;
 
 // ---- Optimiser trim ---------------------------------------------------------------------------
 //
@@ -110,7 +116,7 @@ pub const MAX_SIZE: u32 = 2000;
 /// The margin for an axis with both sides free: `extent * (1 + R1_MARGIN)`, shared between the two
 /// sides, 4.2% on each. An axis with a single free side (the other is pinned to the frame) gets 4.2%,
 /// not the whole 8.4%; an axis pinned on both sides gets none. The square is the larger of the two
-/// axes' needs (`plan::SquarePlan::new`).
+/// axes' needs (`shot_classifier::plan::SquarePlan::new`).
 pub const R1_MARGIN: f32 = 2.0*0.042;
 
 /// Standard deviation of the per-channel noise added to a flat BGC/white fill, so a line with no
@@ -156,3 +162,10 @@ pub const T_TEXTURE_HIGHPASS: f32 = 12.5;
 /// Above it there is no low-energy corridor to grow through, so the carve would visibly warp and
 /// `extend::seam_carve_to_square` rejects — the chain falls through to white-pad.
 pub const R1_SEAM_CARVE_MAX_SEAM_ENERGY: f32 = 24.0;
+
+/// Headcut on a bars image (white bars that trim 1 cut off on one axis): the bars are padding, so the
+/// cut picture is the content box from the philtrum down. The room below the cut (its height) may fall
+/// short of the mask's width by at most this share, or the headcut is not done and the bars rule centres
+/// the whole picture instead. The user's gut value (2026-10-30; 50% was too loose); only image 46 has
+/// tested it, so it wants calibrating on more examples.
+pub const HEADCUT_BARS_MAX_SHORTFALL: f32 = 0.25;

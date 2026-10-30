@@ -21,13 +21,18 @@
 //! inference call, so the gate/refine logic can be exercised against a
 //! stand-in model. [`super::classify`] wires the real one up and feeds
 //! [`classify_instance`] the preprocessor's two resolutions.
+//!
+//! The classifier's last step is [`route`]: it reads the verdict, picks the route and sends the image
+//! to it. [`plan`] is the square R1 is told to cut, which the choice of route depends on.
 
 pub mod birefnet;
 pub(crate) mod cipher;
 pub mod gate;
 pub mod geometry;
 mod gpu_adapters;
+pub mod plan;
 pub mod refine;
+pub mod route;
 pub mod sampling;
 pub mod segmentation;
 pub mod shotcode;
@@ -56,7 +61,7 @@ pub struct ShotClassification {
     pub touches_edges: Vec<Edge>,
     /// The mask covers too little of the frame to be a subject — see [`shotcode::mask_too_small`].
     ///
-    /// Measured here, next to the mask it is measured from, and consumed in two places: routing
+    /// Measured here, next to the mask it is measured from, and consumed in two places: [`route`]
     /// sends it to the route that crops rather than the one that frames, and the debug tag reports
     /// it. Neither recomputes it, so the tag can never disagree with the route.
     pub mask_too_small: bool,
@@ -82,7 +87,8 @@ pub fn classify_instance(input: &RefinementInput, gate_margin_px: u32, params: R
         refinements.push(result);
     }
 
-    let mask_too_small = shotcode::mask_too_small(input.working_image, &input.instance.mask);
+    let mask_too_small =
+        shotcode::mask_too_small(input.working_image, input.original_image, &input.instance.mask);
     trace::note(|| format!(
         "EIX={} (Top,Right,Bottom,Left), mask_too_small = {mask_too_small}",
         shotcode::eix_bits(&touches_edges)

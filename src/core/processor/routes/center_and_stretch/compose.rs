@@ -28,7 +28,7 @@
 use image::{Rgb, RgbImage};
 
 use super::inpaint;
-use super::plan::SquarePlan;
+use crate::core::shot_classifier::plan::SquarePlan;
 use crate::core::shot_classifier::Edge;
 
 /// Compose the square from `src`, stretching background outward wherever the square reaches past a

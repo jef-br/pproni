@@ -34,6 +34,23 @@ impl Mask {
         self.data[(y * self.width + x) as usize] != 0
     }
 
+    /// The tight box around every foreground pixel, or `None` for an empty mask.
+    pub fn bounds(&self) -> Option<Rect> {
+        let (mut x0, mut y0) = (u32::MAX, u32::MAX);
+        let (mut x1, mut y1) = (0u32, 0u32);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.get(x, y) {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+            }
+        }
+        (x0 != u32::MAX).then(|| Rect::from_bounds(x0, y0, x1, y1))
+    }
+
     /// This mask laid on a blank `canvas_w x canvas_h` canvas with its top left corner at `(x, y)`.
     /// Everything outside it is background. Anything that would fall off the canvas is dropped.
     pub fn pasted_into(&self, canvas_w: u32, canvas_h: u32, x: u32, y: u32) -> Mask {
