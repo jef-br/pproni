@@ -1,32 +1,14 @@
 //! Headcutting. Finds a human face in a square sub-section of the optimised image, locates the
 //! philtrum (the dip between the bottom of the nose and the top of the upper lip), and returns the
-//! section with everything above the philtrum removed. The caller gates the call on EIX
-//! (Left=0 or Right=0), extracts the sub-section, and after a successful crop rebuilds `Prepared`
-//! like the framing peel path does.
+//! section with everything above the philtrum removed. The only public entry is [`yxunomei`];
+//! [`preflight`] builds the session at startup. The caller gates on EIX and rebuilds `Prepared`.
 //!
-//! The only public entry is [`yxunomei`]. Internally this module owns a second embedded ONNX
-//! model — YuNet (OpenCV Zoo, BSD-3-Clause). YuNet is a tiny face detector that also emits five
-//! landmarks per face (right eye, left eye, nose, right mouth corner, left mouth corner). The
-//! philtrum y is the midpoint between the nose landmark's y and the average of the two mouth
-//! corners' y. One model, two roles:
-//!
-//! * No face returned (back of head, non-human image, flat colour) → `None`.
-//! * More than one face returned → `None` (user's rule: never multiple philtra on one image).
-//! * Exactly one face returned → cut.
-//!
-//! Model embedding mirrors `shot_classifier::birefnet`: `build.rs` reads the plaintext ONNX out of
-//! `models/`, encrypts it under a per-build key (ChaCha20 keystream, shared through
-//! `shot_classifier::cipher`), and emits `philtrum.onnx.enc` + `philtrum_key.rs` into `OUT_DIR`.
-//! [`preflight`] builds the ONNX session once at startup so a corrupt or missing model aborts the
-//! batch before any file is touched, matching the BiRefNet contract.
-//!
-//! YuNet-specific notes (verified against `face_detection_yunet_2026may.onnx`):
-//! * Input `input`: `[1, 3, H, W]`, dynamic H and W, float32, **BGR** order, pixels 0–255 (no mean
-//!   subtraction, no std division). This module runs it at a fixed [`INPUT_SIZE`] square to keep
-//!   anchor counts predictable; the section is already square-ish, so a plain resize suffices.
-//! * 12 outputs grouped as `{cls, obj, bbox, kps}` × strides `{8, 16, 32}`. `cls_*` and `obj_*`
-//!   are already sigmoid-ed in the graph; `bbox_*` and `kps_*` are raw regression tensors.
-//! * One anchor per spatial cell. Final score = `cls[i] * obj[i]`.
+//! The model is YuNet (OpenCV Zoo, BSD-3-Clause), a tiny face detector with five landmarks per
+//! face, embedded encrypted like BiRefNet. Philtrum y = midpoint of the nose y and the mean
+//! mouth-corner y. No face (back of head, non-human image, flat colour) or more than one (user's
+//! rule: never multiple philtra on one image) → `None`; exactly one → cut. Decisions: see
+//! docs/work-state/2026-10-28-headcuts.md. Embedding: see docs/architecture/05-single-exe.md.
+//! YuNet's input and outputs: see docs/architecture/modules/core-preprocessor-maria-antonieta.md.
 
 use crate::core::shot_classifier::cipher;
 use image::{imageops, RgbImage};
@@ -126,8 +108,8 @@ pub fn preflight() -> Result<(), String> {
 /// `None` and the caller leaves the picture alone.
 ///
 /// `section` is a square sub-section of the optimised image (`Prepared::model_input`), sized by
-/// the caller per the plan: height = top third of the segmask (in model-input coords), side =
-/// `max(top-third-height, segmask-width + margin)` with the trim-margin convention.
+/// the caller from the segmask's top third (in model-input coords). See
+/// docs/work-state/2026-10-28-headcuts.md.
 pub fn yxunomei(section: &RgbImage) -> Option<RgbImage> {
     let s = session().ok()?;
     let y = detect_philtrum(s, section)?;
@@ -191,6 +173,7 @@ fn detect_philtrum(s: &PhiltrumSession, section: &RgbImage) -> Option<u32> {
         }
 
         for idx in 0..locations {
+            // `cls` and `obj` are already sigmoid-ed in the graph.
             let score = cls[idx] * obj[idx];
             if score < SCORE_THRESHOLD {
                 continue;

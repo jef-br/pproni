@@ -1,37 +1,14 @@
-//! Optimiser: the preprocessor's last step before BiRefNet sees the image. [`optimize`] is the one
-//! entry point and does two things in order, on a copy of the working image:
-//!
-//! 1. **Colour balance** (below), then
-//! 2. **Trim**: crop away the empty backdrop, so the product fills more of what the model looks at.
-//!    The 16 border pixels (`TRIM_SAMPLES_PER_EDGE` per edge) give the backdrop colour range: per
-//!    channel, the lowest and highest sample. A pixel inside the range on all three channels is
-//!    backdrop. Backdrop gaps are closed (`TRIM_CLOSE_K`), the tightest box around what is left is the
-//!    product (trim 1). That box is squared to its largest side and grown by a margin
-//!    (`TRIM_MARGIN_MIN_PX`, `TRIM_MARGIN_SHARE`), and the crop is that square, slid to stay inside the
-//!    frame. A second run of the same trim on the box (trim 2, [`recheck_box`]) is the control: if
-//!    it moves any side by more than `TRIM_RECHECK_TOLERANCE_PX`, a mono-colour frame (a
-//!    passe-partout) may surround the picture. The model is only ever shown trim 1's crop, once;
-//!    both boxes are handed to `core::framing`, which reads them against the model's mask.
-//!    A frame with no product left is an error: the image is not processed.
-//!
-//! # Colour balance
-//!
-//! The segmentation model finds a subject more reliably when the picture uses its full tonal range
-//! and its midtones sit where the subject/background contrast is easiest to read. This is a
-//! Photoshop "Levels" move, worked out once for the whole image:
-//!
-//! 1. **Cut points.** For each colour channel, find `lo` (the highest value with at most 0.68% of
-//!    the pixels at or below it) and `hi` (the 99.32 percentile).
-//! 2. **One shared range.** Take the lowest `lo` and the highest `hi` of the three channels, so all
-//!    three are treated alike. The colour balance is kept and clipping stays small.
-//! 3. **Gamma.** `1 + lo/(255-lo) - (255-hi)/hi`, kept between 0.01 and 9.99. 1.00 is neutral,
-//!    above 1 lightens the midtones, below 1 darkens them.
-//! 4. **One table.** Spread `lo`..`hi` over 0-255, bend the midtones by the gamma, and round once,
-//!    into a 256-entry table. Every pixel of every channel is then a single table read.
-//!
-//! If the table changes nothing, the input image is used as it is. The optimiser never changes the
-//! image it is given: the full-resolution `original` the exporter composes from, and the
+//! Optimiser: the preprocessor's last step before BiRefNet sees the image. On a copy of the working
+//! image, [`optimize_both`] runs the colour balance, then trim 1 (crop away the empty backdrop, so
+//! the product fills more of what the model looks at), then trim 2, the control; [`optimize`] keeps
+//! only the crop. A frame with no product left is an error: the image is not processed. The image
+//! it is given is never changed: the full-resolution `original` the exporter composes from, and the
 //! true-colour `working` the exporter samples BGC/FGC from, are never touched.
+//!
+//! Why the colour balance: the segmentation model finds a subject more reliably when the picture
+//! uses its full tonal range and its midtones sit where the subject/background contrast is easiest
+//! to read. It is a Photoshop "Levels" move, worked out once for the whole image. The steps, the
+//! numbers and the trims: see docs/architecture/01-why-two-resolutions.md.
 
 use super::super::config::{
     T_EDGE_FLAT, T_TEXTURE_HIGHPASS, TRIM_CLOSE_K, TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE,
@@ -58,16 +35,13 @@ fn histogram(img: &RgbImage, c: usize) -> [u64; 256] {
     hist
 }
 
-/// The two cut points of one channel: `(lo, hi)`.
+/// The two cut points of one channel: `(lo, hi)`, whole numbers straight from histogram positions.
 ///
-/// `lo` is the highest value `x` such that the pixels at or below `x` are at most `LO_PERCENTILE`
-/// percent of all pixels. If even value 0 holds more than that (a black backdrop), `lo` is 0.
-/// `hi` is the `HI_PERCENTILE` percentile: the lowest `x` such that the pixels at or below `x` are
-/// at least that percent of all pixels. A channel that is all one value `v` gives `(v - 1, v)`.
-///
-/// Both come straight from histogram positions, so they are already whole numbers. With at least
-/// one pixel, `lo` is never 255. For an empty histogram it returns `(255, 0)`, which the caller
-/// reads as "no range".
+/// `lo`: the highest `x` with at most `LO_PERCENTILE` percent of all pixels at or below it; 0 when
+/// value 0 alone holds more (a black backdrop). `hi`: the `HI_PERCENTILE` percentile, the lowest
+/// `x` with at least that percent at or below it. A channel all one value `v` gives `(v - 1, v)`.
+/// With at least one pixel `lo` is never 255; an empty histogram gives `(255, 0)`, read as "no
+/// range".
 fn cut_points(hist: &[u64; 256]) -> (u8, u8) {
     let total = hist.iter().sum::<u64>() as f64;
     // Whole pixel counts. The 1e-9 keeps an exact tie (say 68 of 10,000 pixels) on the side the
@@ -102,13 +76,10 @@ fn cut_points(hist: &[u64; 256]) -> (u8, u8) {
     (lo, hi)
 }
 
-/// The one `(lo, hi)` range all three channels share: the lowest of the three `lo` values and the
-/// highest of the three `hi` values. Every channel votes — a channel with no spread still gives its
-/// own cut points and can set the shared ones (a pure-red image has `lo` = 0 from its flat green
-/// and blue).
-///
-/// Sharing one range keeps the colour balance: every channel is remapped by the same amounts. It
-/// also keeps clipping to a minimum, because the widest range any channel needs is the one used.
+/// The one `(lo, hi)` range all three channels share: the lowest `lo` and the highest `hi`. Every
+/// channel votes, even one with no spread (a pure-red image has `lo` = 0 from its flat green and
+/// blue). One range keeps the colour balance (every channel is remapped by the same amounts) and
+/// keeps clipping to a minimum (the widest range any channel needs is the one used).
 ///
 /// `None` when `hi` is not above `lo`: there is no range to spread, so the image is left alone.
 fn shared_range(img: &RgbImage) -> Option<(u8, u8)> {
@@ -128,15 +99,13 @@ fn shared_range(img: &RgbImage) -> Option<(u8, u8)> {
 const GAMMA_MIN: f64 = 0.01;
 const GAMMA_MAX: f64 = 9.99;
 
-/// The midtone gamma that goes with the range `(lo, hi)`: `1 + lo/(255-lo) - (255-hi)/hi`, then kept
-/// between `GAMMA_MIN` and `GAMMA_MAX`. 1.00 is neutral, above 1 lightens the midtones and below 1
-/// darkens them (the curve itself is built in the table step).
+/// The midtone gamma for the range `(lo, hi)`: `1 + lo/(255-lo) - (255-hi)/hi`, kept between
+/// `GAMMA_MIN` and `GAMMA_MAX` for every image. 1.00 is neutral, above 1 lightens the midtones and
+/// below 1 darkens them (the curve is built in the table step). A higher `lo` pushes it up and a
+/// lower `hi` pulls it down: it leans against the brightness shift the remap to `lo`..`hi` causes.
 ///
-/// A higher `lo` pushes it up and a lower `hi` pulls it down: it leans against the brightness
-/// shift that the remap to `lo`..`hi` causes. The same limits apply to every image.
-///
-/// The caller must pass `hi > lo`, which is what `shared_range` returns. That makes `lo` at most
-/// 254 and `hi` at least 1, so neither division can be by zero.
+/// The caller must pass `hi > lo` (what `shared_range` returns): then `lo` is at most 254 and `hi`
+/// at least 1, so neither division can be by zero.
 fn gamma(lo: u8, hi: u8) -> f64 {
     debug_assert!(hi > lo);
     let (lo, hi) = (lo as f64, hi as f64);
@@ -144,14 +113,12 @@ fn gamma(lo: u8, hi: u8) -> f64 {
 }
 
 /// The 256-entry table that turns an input value into its output value: spread `lo`..`hi` over
-/// 0-255, then bend the midtones by `gamma`. Everything at or below `lo` becomes 0 and everything at
-/// or above `hi` becomes 255.
+/// 0-255 (at or below `lo` becomes 0, at or above `hi` becomes 255), then bend the midtones by the
+/// curve `255 * t ^ (1 / gamma)` for `t` between 0 and 1, so 0 and 255 stay put. The caller passes
+/// `hi > lo`.
 ///
-/// This is the only place the optimiser rounds. `gamma` stays at full precision and each entry is
-/// rounded once, as it is made, so every pixel afterwards costs one table read and nothing else.
-///
-/// The curve is `255 * t ^ (1 / gamma)` for `t` between 0 and 1, so 0 and 255 stay put, above-1
-/// gamma lightens the midtones and below-1 darkens them. The caller passes `hi > lo`.
+/// The only place the optimiser rounds: `gamma` stays at full precision and each entry is rounded
+/// once, as it is made, so every pixel afterwards costs one table read and nothing else.
 fn build_table(lo: u8, hi: u8, gamma: f64) -> [u8; 256] {
     debug_assert!(hi > lo);
     let span = (hi - lo) as f64;
@@ -182,17 +149,14 @@ pub fn optimize(img: &RgbImage) -> Result<(RgbImage, Rect), String> {
     Ok((both.model_input, both.crop))
 }
 
-/// Prepare `img` for the segmentation model: colour balance, then two trims.
+/// Prepare `img` for the segmentation model: colour balance, then trim 1, the real one
+/// ([`product_box`]), then trim 2, the control ([`recheck_box`]): a box that moves by more than
+/// `TRIM_RECHECK_TOLERANCE_PX` on any side may have had a mono-colour frame (a passe-partout) round
+/// the real picture.
 ///
-/// 1. **Trim 1**, the real one: the tight box around the product ([`product_box`]).
-/// 2. **Trim 2**, the control ([`recheck_box`]): the same trim run again on trim 1's box. A box that
-///    was right does not move; one that moves by more than `TRIM_RECHECK_TOLERANCE_PX` on any side
-///    may have had a mono-colour frame (a passe-partout) round the real picture.
-///
-/// The model is shown trim 1's box, backed off ([`square_crop`]) so it sees the product with room to
-/// breathe, and it runs once: its mask is the one reliable fact about the picture. Both boxes are
-/// handed on so `core::framing` can read them against that mask. `Err` when nothing but backdrop is
-/// left: there is no product to find, and the image is not processed.
+/// The model is shown trim 1's box backed off ([`square_crop`]), with room to breathe, and runs
+/// once: its mask is the one reliable fact about the picture. Both boxes go on to `core::framing`,
+/// which reads them against that mask. `Err` when nothing but backdrop is left: not processed.
 pub fn optimize_both(img: &RgbImage) -> Result<Optimised, String> {
     let balanced = colour_balance(img);
     let balanced = balanced.as_ref().unwrap_or(img);
@@ -265,13 +229,11 @@ fn border_samples(img: &RgbImage) -> Vec<Rgb<u8>> {
     samples
 }
 
-/// Keep only the border samples whose colour sits near the per-channel median of the group.
-///
-/// A sample's L1 colour distance to the median (`|ΔR|+|ΔG|+|ΔB|`) is kept when it is at or below
-/// `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD`, where MAD is the median of those 16 distances.
-/// The floor guards near-uniform edges from being shredded; the MAD term lets noisier edges keep a
-/// wider spread. `TRIM_MIN_KEEP` samples closest to the median are always kept, so a mostly-product
-/// edge can't collapse the backdrop range to one colour.
+/// Keep only the border samples whose colour sits near the per-channel median of the group: L1
+/// distance to it (`|ΔR|+|ΔG|+|ΔB|`) at most `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD`, MAD being
+/// the median of those 16 distances. The floor guards near-uniform edges from being shredded; the
+/// MAD term lets noisier edges keep a wider spread. The `TRIM_MIN_KEEP` samples closest to the
+/// median are always kept, so a mostly-product edge can't collapse the backdrop range to one colour.
 ///
 /// Protects `colour_range` on bleed-off shots, where a sampled corner can land on the product.
 fn drop_outliers(samples: &[Rgb<u8>]) -> Vec<Rgb<u8>> {
@@ -319,13 +281,11 @@ fn colour_range(samples: &[Rgb<u8>]) -> ([u8; 3], [u8; 3]) {
 
 /// The tightest box around the product, or `None` when there is none.
 ///
-/// A pixel is product when it is outside the backdrop colour range (see [`border_samples`] and
-/// [`colour_range`]) *and* sits inside a `TRIM_CLOSE_K` x `TRIM_CLOSE_K` block of such pixels; that is
-/// the same as closing the backdrop with a square window of that size. Anything thinner is treated
-/// as backdrop, and so is everything outside the frame. The box spans every such block.
-///
-/// `TRIM_CLOSE_K` is fixed at 2, so each block is probed as its four corners directly — no
-/// summed-area table, no auxiliary allocation.
+/// A pixel is product when it is outside the backdrop colour range ([`border_samples`],
+/// [`colour_range`]) *and* sits inside a `TRIM_CLOSE_K` x `TRIM_CLOSE_K` block of such pixels: the
+/// backdrop closed with a square window of that size. Anything thinner, and everything outside the
+/// frame, is backdrop. The box spans every such block. `TRIM_CLOSE_K` is fixed at 2, so each block
+/// is probed as its four corners directly — no summed-area table, no auxiliary allocation.
 fn product_box(img: &RgbImage) -> Option<Rect> {
     const _: () = assert!(TRIM_CLOSE_K == 2, "product_box's 2x2 probe assumes TRIM_CLOSE_K == 2");
 
@@ -359,11 +319,8 @@ fn product_box(img: &RgbImage) -> Option<Rect> {
 
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred Part D) --------------
 //
-// A measurement primitive, upstream of the mask. It reports, per edge, whether that border is a
-// flat band and how it relates to the frame's backdrop, plus whether the background outside the
-// product proxy is textured. [`detect_letterbox`] reads it to find flat padding bars on a textured
-// scene; `preprocess` calls it on the full-resolution image and keeps the result in
-// `Prepared::letterbox`, which R1 reads.
+// A measurement primitive, upstream of the mask, read by [`detect_letterbox`]. What it measures
+// and where it runs: see docs/architecture/modules/core-preprocessor-optimizer.md.
 
 /// How one edge relates to the frame's backdrop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -545,17 +502,11 @@ pub struct LetterboxReport {
 
 /// Detect flat padding bars on one axis (plan Part C's trim action) and say what was measured.
 ///
-/// The plan's table: an opposite pair of edges that are both `FlatOther` (flat, in a colour that is
-/// not the frame's backdrop) while the other pair is `Varied` is padding on that axis, and it is
-/// trimmed. Every other mix leaves the image whole. That is the hard bound: a freestanding product
-/// on a plain backdrop has `Backdrop` edges, so it can never be trimmed and `EIX0000` cannot flip.
-///
-/// Because the backdrop is the median of the border samples, two same-coloured bars read as the
-/// backdrop themselves (10 of the 16 samples sit in them), so only bars that differ from the border
-/// median — in practice two differently coloured bars — are trimmed.
-///
-/// Texture is then measured on the trimmed interior, outside its product proxy; a flat interior is a
-/// frame (the deferred Part D case) and is left alone.
+/// Trims only when an opposite pair of edges is `FlatOther` and the other pair `Varied`, and the
+/// trimmed interior reads as textured; every other mix leaves the image whole. That is the hard
+/// bound: a freestanding product on a plain backdrop has `Backdrop` edges, so `EIX0000` cannot flip.
+/// Two same-coloured bars read as the backdrop and are not trimmed. See
+/// docs/architecture/modules/core-preprocessor-optimizer.md.
 pub fn detect_letterbox(img: &RgbImage) -> LetterboxReport {
     let (w, h) = img.dimensions();
     let kinds = classify_trim_edges(img);
@@ -598,17 +549,15 @@ pub fn trim_letterbox(img: &RgbImage) -> Option<Rect> {
     detect_letterbox(img).keep
 }
 
-/// The crop BiRefNet is shown: a square around `product`, inside the frame `[0, w) x [0, h)`.
+/// The crop BiRefNet is shown: a square around `product`, inside the frame `[0, w) x [0, h)`, always
+/// holding the whole product box. Side: the product's largest side plus, on every side, the larger
+/// of `TRIM_MARGIN_MIN_PX` and `TRIM_MARGIN_SHARE` of it (rounded down); centred on the product,
+/// then slid until it is inside the frame.
 ///
-/// The product box is squared to its largest side, then grown by a margin on every side: the larger of
-/// `TRIM_MARGIN_MIN_PX` and `TRIM_MARGIN_SHARE` of that side (rounded down). The square
-/// is centred on the product and slid until it is inside the frame, so the whole product box is always
-/// in it.
-///
-/// If that square is wider than the frame's shorter side but the product still fits, the margin is
-/// squeezed so the square is exactly the shorter side. If the product's largest side is itself longer
-/// than the frame's shorter side, no square fits: the margin drops to its minimum, `TRIM_MARGIN_MIN_PX`,
-/// each axis takes the wanted side or the whole axis, whichever is shorter, and the crop is not square.
+/// Wider than the frame's shorter side but the product fits: the margin is squeezed so the square is
+/// exactly that side.
+/// Product's largest side longer than it: no square fits, the margin drops to `TRIM_MARGIN_MIN_PX`,
+/// each axis takes the wanted side or the whole axis, whichever is shorter; the crop is not square.
 fn square_crop(product: Rect, w: u32, h: u32) -> Rect {
     let longest = product.w.max(product.h);
     let fits = longest <= w.min(h);
@@ -635,7 +584,8 @@ fn span(start: u32, len: u32, side: u32, axis: u32) -> (u32, u32) {
     (centred.clamp(0, (axis - side) as i64) as u32, side)
 }
 
-/// The colour balance described in the module docs.
+/// The colour balance: `shared_range`, `gamma`, `build_table`. See
+/// docs/architecture/01-why-two-resolutions.md.
 ///
 /// Returns the balanced copy, or `None` when there is nothing to change: the image has no range
 /// (for example it is all black) or the table comes out as the identity. `None` means "use `img`

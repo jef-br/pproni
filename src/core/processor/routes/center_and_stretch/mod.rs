@@ -1,36 +1,15 @@
 //! R1 — the subject reaches at most three edges (EIX `0000` through any three bits).
 //!
-//! Cut the square it is given around the subject (planned by `shot_classifier::plan`), then fill
-//! whatever it reaches past the image by stretching the background bands outward ([`compose`]). A
-//! side that lands inside the image crops instead — same code, no branch.
+//! Cut the square planned by `shot_classifier::plan` round the subject and stretch the background
+//! bands over what it reaches past the image ([`compose`]); a side inside crops: same code, no branch.
 //!
-//! ## One rule, not six behaviours
+//! An edge the subject bleeds off is *blocked*: the square may not move it. That one rule covers
+//! four of spec §5's five bleed behaviours, which is why they are not branches of
+//! [`super::crop_square`]; only the full bleed stays out. See docs/specs/05-routing.md §5.1.
 //!
-//! An edge the subject bleeds off is *blocked*: the square may not move it, because the subject
-//! continues past it and any background put there would be painted over a subject we cannot see.
-//! Everything else follows from that, per axis — an axis with a free side takes the margin, an axis
-//! blocked at both ends takes none, and the slack goes to whichever sides are free.
-//!
-//! That single rule reproduces four of the five bleed behaviours `docs/pproni-spec.md` §5 lists
-//! separately: flush to one edge, fill an axis bled at both ends, flush into a shared corner, fill
-//! the boxed-in axis. They were never five behaviours — they are one rule seen from four angles,
-//! which is why they live here rather than in five branches of [`super::crop_square`].
-//!
-//! Only the full bleed stays out. With all four edges blocked the subject's box *is* the frame,
-//! there is no background anywhere to stretch from, and R1 has nothing to work with.
-//!
-//! The subject region is the segmentation mask's own bounding box. **No saliency here**: the
-//! saliency-weighted centre of gravity belongs to [`super::crop_square`], where a fully-bled
-//! subject leaves no background to anchor against.
-//!
-//! ## Deliberately not validated
-//!
-//! The background is taken as trustworthy from the grown silhouette (see [`Silhouette`]) all the
-//! way to the border. Two validations of it were designed and then *deferred*, not forgotten:
-//! trimming a flat, artificial background run off the outer end, and advancing the inner end past a
-//! cast shadow the mask does not cover. Neither is worth its complexity until an image argues for
-//! it. The argument will look like a smeared shadow, or a stretched band of the wrong colour along
-//! one side.
+//! The subject is the mask's own bounding box. **No saliency here**: the saliency-weighted centre of
+//! gravity is [`super::crop_square`]'s, where a full bleed leaves no background to anchor against.
+//! The background is trusted, unvalidated on purpose, from the grown [`Silhouette`] to the border. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 pub mod compose;
 pub mod extend;
@@ -43,14 +22,12 @@ use crate::core::shot_classifier::Mask;
 use image::RgbImage;
 
 /// The product silhouette, grown outward, as the span it covers on every row and every column of
-/// the *original* image. The grown silhouette is the product band: copied untouched, never a stretch
-/// source. Growing it is what keeps a cuff, an edge or a tiny shadow hugging the product out of the
-/// stretch (plan A.2).
+/// the *original* image: the product band, copied untouched and never a stretch source. Growing it
+/// keeps a cuff, an edge or a tiny shadow hugging the product out of the stretch (plan A.2).
 ///
 /// Built once from the working-resolution mask, scaled up, then grown by `grow` pixels in every
-/// direction (a disc, not a square). Rows or columns the grown shape does not reach take the span of
-/// the nearest one that has it, so the product band changes smoothly from one line to the next
-/// instead of jumping between the silhouette and the bounding box.
+/// direction (a disc, not a square). Lines the grown shape misses take the span of the nearest line
+/// that has one, so the band changes smoothly instead of jumping between silhouette and bounding box.
 pub struct Silhouette {
     /// Indexed by original-image `y`: the columns `[lo, hi)` the grown silhouette covers.
     pub row_x: Vec<(i64, i64)>,

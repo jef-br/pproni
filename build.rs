@@ -1,18 +1,12 @@
 //! Build-time steps that shape the final exe
 //!
-//! 1. Stamps the Windows app icon onto the binary (Explorer, taskbar and console read it straight
-//!    from the exe). `Pepperoni.ico` is committed at the repo root: unlike the models and the
-//!    runtime it is small, so it lives in the repo rather than being a build-time prerequisite.
-//! 2. Encrypts the embedded ONNX models — one per slot. The plaintext named by each slot's filename
-//!    inside [`MODEL_DIR`] (gitignored) is read here, encrypted under a key generated fresh for
-//!    this build, and written to `$OUT_DIR/<slot>.onnx.enc`; the key+nonce go to
-//!    `$OUT_DIR/<slot>_key.rs`. The encrypted names are fixed so swapping which model ships is
-//!    one edit here, not two. So the plaintext model is never `include_bytes!`'d into the image
-//!    and never lands in git — see `core::shot_classifier::birefnet` (BiRefNet) and
-//!    `core::preprocessor::maria_antonieta` (philtrum), which decrypt them in memory at load.
-//!    This is obfuscation, not secrecy: the key ships in the binary.
-//!    `src/core/shot_classifier/cipher.rs` is the shared XOR-symmetric ChaCha20 keystream, pulled
-//!    in here by path so encrypt and decrypt agree.
+//! 1. Stamps the Windows app icon (`Pepperoni.ico`, committed at the repo root) onto the binary.
+//!    See docs/architecture/modules/build.md.
+//! 2. Encrypts the embedded ONNX models, one per slot: the plaintext in [`MODEL_DIR`] goes out
+//!    encrypted under a fresh per-build key to `$OUT_DIR/<slot>.onnx.enc`, the key+nonce to
+//!    `$OUT_DIR/<slot>_key.rs`. `src/core/shot_classifier/cipher.rs` is pulled in by path so
+//!    encrypt and decrypt agree. Obfuscation, not secrecy: the key ships in the binary.
+//!    See docs/architecture/modules/build.md.
 
 #[allow(dead_code)]
 #[path = "src/core/shot_classifier/cipher.rs"]

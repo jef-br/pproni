@@ -96,11 +96,9 @@ pub fn sample_background_color(
 /// subject-plus-safety-margin out of the background sampling strip.
 ///
 /// `margin` is a full-resolution number — the working-resolution safety
-/// margin times the scale between the two — so on a large original the
-/// window is tens of thousands of pixels wide. Scanning it per strip
-/// pixel was the pipeline's hot spot: a background pixel, the common
-/// case, only reached its answer after reading every cell. The summed-area
-/// table gives the same answer in four lookups.
+/// margin times the scale between the two — so the window can be huge; the
+/// summed-area table answers in four lookups. See
+/// docs/architecture/modules/core-shot-classifier-sampling.md.
 fn mask_is_near(mask_sums: &BoolSummedArea, cx: u32, cy: u32, margin: u32) -> bool {
     mask_sums.any_in(
         cx.saturating_sub(margin),

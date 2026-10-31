@@ -23,6 +23,12 @@ Two jobs:
    - **Quest-end gate:** a quest is done only when `src/` has ZERO `<jbpair>`
      AND ZERO `<jbcomplete>`. If any remain, fail and list them.
 
+3. **Comment rule.** If the diff touches comments in `.rs` files, run
+   `python tools/check_comments.py --base <base>` and check the edits against
+   `docs/agent-knowledge/code-comments.md`. A FAIL (code changed with the
+   comments, or a doc pointer that does not resolve) is a blocker; review the
+   "found nowhere else" and size lists against the rule.
+
 Report: blockers first (most severe), each with `file:line`, the invariant or
 bug, and a concrete failure case. Then the tag verdict. You confirm that
 judgment was surfaced; you do not judge the values yourself — that's the user's

@@ -1,0 +1,13 @@
+# References that are allowed to not resolve: kind<TAB>target<TAB>why. Read by tools/check_docs.py.
+path	src/bin/pproni_analyzer.rs	deleted file, named as history
+path	src/bin/csp_analyzer.rs	deleted file, named as history
+path	docs/csp-spec.md	old name, rename history
+path	docs/pproni-spec.md	old name, rename history
+path	models/birefnet_lite_	file-name prefix in a usage text
+path	models/MODEL.onnx	placeholder in a usage text
+path	models/birefnet_lite_384.onnx	written by a tools/ command, not kept
+path	models/birefnet_lite_384_int8.onnx	written by a tools/ command, not kept
+path	examples/run_dir	the cargo example name
+path	docs/diagram	prose ("docs/diagram on hold"), not a path
+path	docs/....md	usage text in tools/check_comments.py
+path	docs/architecture/modules/core-framing.md	naming example in docs/agent-knowledge/code-comments.md

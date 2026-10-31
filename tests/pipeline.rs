@@ -1,8 +1,8 @@
 //! Integration tests for the imaging core.
 //!
-//! The detection/geometry tests that used to live here were retired with the classical detector.
-//! What survives is the export invariant, which is independent of routing: every JPEG Pproni writes
-//! carries an embedded sRGB ICC profile and decodes back at the size it was written.
+//! The export invariant, independent of routing: every JPEG Pproni writes carries an embedded sRGB
+//! ICC profile and decodes back at the size it was written. History: see
+//! docs/architecture/modules/tests.md.
 
 use pproni::core::config::WORKING_SIZE;
 use pproni::core::exporter::save;

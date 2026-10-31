@@ -8,10 +8,8 @@
 //! working copy run through the optimiser (colour balance, then a crop around the product) — it
 //! exists only to be shown to the model, and `crop` says where it was cut from `working`.
 //!
-//! Both resolutions are kept because the shot classifier needs both: the segmentation model runs on
-//! `working`, and its pass-2 refinement re-decides the boundary against full-resolution pixels in
-//! `original`. Hand it the same image twice and the scale between them collapses to 1.0, which
-//! reduces the refinement to a no-op.
+//! Both resolutions are kept because the classifier's pass-2 refinement needs full-resolution
+//! pixels. See docs/architecture/01-why-two-resolutions.md.
 
 pub mod maria_antonieta;
 pub mod optimizer;

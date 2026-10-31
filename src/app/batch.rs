@@ -1,7 +1,7 @@
 //! Batch processing: enumerate inputs and process each; core's Exporter moves the source into the
 //! backup folder on success and leaves failures in place. Recurses one level into subfolders of
 //! `input` — each becomes a same-named subfolder of both `output` and `backup` — matching the
-//! folder-bootstrap flow in `docs/diagrams/JB-A2B.drawio.svg`.
+//! folder-bootstrap flow in `docs/diagrams/JBA2B.drawio.svg`.
 
 use super::i18n::Lang;
 use super::progress::Progress;

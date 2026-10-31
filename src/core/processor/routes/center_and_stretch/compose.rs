@@ -1,29 +1,15 @@
 //! R1 step 2 — build the square.
 //!
-//! The square starts as a blank canvas with the real part of the picture laid in at its place. What
-//! the square reaches past the picture is then filled **one edge at a time, by one function**
-//! ([`stretch_edge`]), called for the left, the right, the top and the bottom edge in that order, each
-//! only when the square really reaches past that edge. Left and right come first, so the top and
-//! bottom edges read rows that are already the full width: that is what fills the corners, which sit
-//! outside the picture on both axes at once and so have no real pixels to read on their own.
+//! The real part of the picture is laid into a blank canvas; each edge the square reaches past is then
+//! filled by one function, [`stretch_edge`]: left, right, top, bottom. Left and right go first so top
+//! and bottom read full-width rows: that fills the corners, which have no real pixels of their own.
 //!
-//! ## One line, one stretch
-//!
-//! Every line crossing an edge (a row for the left and right edge, a column for the top and bottom
-//! edge) is handled on its own, in three parts:
-//!
-//! * the **product band** — the silhouette grown outward by the clearance — is left untouched;
-//! * the **source** is the background between the band and the border of the real picture, read
-//!   from the band outward;
-//! * the **overhang** is what the square reaches past that border. The source is stretched evenly
-//!   ([`stretch_line`]) until it covers the source and the overhang together: one scale for the whole
-//!   source, so no part of it is magnified more than the rest. Nothing is invented in the stretch: no
-//!   mirror, no blur, no noise.
-//!
-//! A line with no source at all (the grown product runs to the border there) is filled flat with the
-//! background colour, never black, and then replaced by a blend of the clean lines either side
-//! ([`borrow_neighbour_lines`]), with the photo's own measured grain added to it so it does not read
-//! as a flat block. That is the only place anything is added. All of it is the same for all four edges.
+//! Per line (a row for left and right, a column for top and bottom) the **product band** (silhouette
+//! grown by the clearance) is untouched, and the **source** (background from the band out to the real
+//! border) is stretched evenly over itself and the **overhang** ([`stretch_line`]); nothing invented.
+//! A line with no source is filled flat with the background colour, never black, then replaced by a
+//! blend of the clean lines either side plus the photo's grain ([`borrow_neighbour_lines`]).
+//! See docs/work-state/2026-10-23-one-stretch-function.md.
 
 use image::{Rgb, RgbImage};
 
@@ -105,11 +91,8 @@ struct EdgeJob<'a> {
 ///
 /// For every line crossing the edge, the segment between the canvas border and the product band is
 /// rewritten: the background between the band and the real border is stretched over all of it. A
-/// line that has no background there is filled flat, and then borrows the fill of the nearest line
-/// that has one.
-///
-/// The function does not know which edge it is on beyond how to address a pixel: a line is a row or a
-/// column, and it runs outward from the band towards the border at one end or the other.
+/// line with no background there is filled flat, then borrows from the nearest clean lines. The edge
+/// only sets how a pixel is addressed: a line is a row or a column, run outward from the band.
 fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) {
     let (r0, r1) = job.real;
     let horizontal = matches!(job.edge, Edge::Left | Edge::Right);
@@ -287,15 +270,12 @@ fn sample_at(seg: &[Rgb<u8>], s: f32) -> Rgb<u8> {
     Rgb([cubic(0), cubic(1), cubic(2)])
 }
 
-/// Plan A.5 neighbour-line borrow, for one edge. A line that had no background (`bled`) holds a flat
-/// BGC/white fill; each of its pixels is replaced by a blend of the pixels at the same distance from
-/// the border on the clean lines either side of it (the nearest line that did have background on each
-/// side), weighted by how close the line is to each. A run of bled lines therefore becomes a smooth
-/// ramp from the clean line before it to the one after it, not two blocks with a step in the middle.
-/// With a clean line on one side only, that line is copied. A line without a clean neighbour anywhere
-/// along the edge keeps its flat fill. The blend gets the photo's measured `grain` (see [`edge_grain`])
-/// added, so it does not read as a flat block among grainy neighbours. Only bled pixels are ever
-/// written, so every stretched or copied pixel is byte-for-byte unchanged.
+/// Plan A.5 neighbour-line borrow, for one edge. Each pixel of a line with no background (`bled`,
+/// holding a flat BGC/white fill) becomes the blend of the pixels at the same position on the nearest
+/// clean line either side, weighted by closeness, plus the photo's measured `grain` ([`edge_grain`]).
+/// A run of bled lines becomes a smooth ramp; a clean line on one side only is copied; an edge with
+/// no clean line keeps the flat fill. Only bled pixels are ever written, so every stretched or copied
+/// pixel is byte-for-byte unchanged. See docs/work-state/2026-10-23-one-stretch-function.md.
 fn borrow_neighbour_lines(
     canvas: &mut RgbImage,
     job: &EdgeJob<'_>,

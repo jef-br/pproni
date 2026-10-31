@@ -1,24 +1,13 @@
-//! R1 step 1 — where the square goes.
+//! R1 step 1 — where the square goes. Pure geometry, no pixels.
 //!
-//! Pure geometry, no pixels. Two rules, one per axis:
-//!
-//! * **Size.** Every free side of an axis takes half the margin (4.2% of the subject's extent): an
-//!   axis with two free sides needs `extent * (1 + margin)`, one with a single free side
-//!   `extent * (1 + margin / 2)`. An axis blocked on both sides needs exactly `extent` — the
-//!   subject runs off the frame at both ends, so there is no gap to leave and nothing to leave it
-//!   with. The square's side is the larger of the two needs, so the tighter axis decides.
-//! * **Placement.** The slack on each axis goes to that axis's free sides: split between them when
-//!   both are free, all of it to the one that is free otherwise. A blocked side never moves —
-//!   the subject continues past it, and background invented there would be background painted over
-//!   a subject we cannot see.
-//!
-//! A 0-edge subject is the degenerate case of this, not a separate one: four free sides, so both
-//! axes take the full margin and both split it evenly.
+//! Per axis: each free side takes half the margin (4.2% of the subject's extent), an axis blocked on
+//! both sides needs exactly `extent`, and the square's side is the larger of the two needs. The slack
+//! goes to the free sides (split when both are free); a blocked side never moves. A 0-edge subject is
+//! the degenerate case, not a separate one. See docs/specs/05-routing.md §5.1.
 //!
 //! Deriving the side from the subject rather than from the image is what makes the square able to
-//! reach past a border. That is not a failure mode — it is the case R1 exists for. A side that
-//! lands inside the image simply crops there; a side that reaches past it leaves an [`Overhang`]
-//! for the fill to cover.
+//! reach past a border — the case R1 exists for, not a failure mode. A side inside the image crops
+//! there; a side past it leaves an [`Overhang`] for the fill to cover.
 
 use crate::core::shot_classifier::{geometry::Rect, Edge};
 

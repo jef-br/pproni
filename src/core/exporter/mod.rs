@@ -1,27 +1,14 @@
 //! Exporter: enforce the output size envelope, save to `PPRONI-OUTPUT`, then move the original out of
 //! `PPRONI-INPUT` into `PPRONI-BACKUP`.
 //!
-//! Every route ends here, so the envelope is applied here — one place, no route can bypass it.
-//! The move only runs after a successful save, so a write failure leaves the source untouched for a
-//! retry. Originals are never deleted — they keep their name and extension under `PPRONI-BACKUP`, in
-//! the same subfolder layout the output uses.
+//! Every route ends here, so no route can bypass the envelope. The move only runs after a
+//! successful save, so a write failure leaves the source untouched for a retry; originals are never
+//! deleted. See docs/architecture/modules/core-exporter.md.
 //!
-//! ## Debug tags (`PPRONI_DEBUG_TAGS` marker file)
-//!
-//! Off by default — the shipped exe writes a clean `<stem>.jpg`. Turned on by a file named
-//! `PPRONI_DEBUG_TAGS` sitting next to the executable — no shell, no environment variable, because
-//! Pproni ships as one file with nothing to configure. The file's content is ignored; only its
-//! presence matters. Delete it to turn tagging back off. This marker is the *only* thing Pproni ever
-//! looks for beside the exe; the runtime and the weights are inside it.
-//!
-//! When on, each output is renamed `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>]`: EIX from the shot
-//! classifier's verdict, BGC/FGC sampled here (`colors`) from the true-colour working copy, with the segmentation mask written alongside as `<stem>_segmask.jpg` —
-//! upscaled (nearest-neighbour) to the output image's size and saved as sRGB JPEG, so it overlays
-//! the tagged output pixel-for-pixel. When the classifier produced no verdict the name carries
-//! `EIX=____` and no
-//! segmask is written. Since the model is embedded and `core::preflight` aborts the run if its
-//! session will not build, a systematic run of all-`EIX=____` files no longer means a broken
-//! install — it points at the classifier or the images themselves.
+//! Debug tags: off by default (a clean `<stem>.jpg`). A `PPRONI_DEBUG_TAGS` file next to the exe
+//! renames each output `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>]` (BGC/FGC from `colors`) and
+//! writes `<stem>_segmask.jpg` beside it; no verdict gives `EIX=____` and no segmask.
+//! See docs/architecture/02-debug-tags.md.
 
 pub mod colors;
 pub mod icc;

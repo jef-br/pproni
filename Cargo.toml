@@ -40,7 +40,7 @@ tintbox = "0.4.0"
 # So the exe is still one file, just not by linking: `core::runtime` embeds `onnxruntime.dll` with
 # include_bytes! and unpacks it to a temp path for `ort::init_from` on first use. Closing this the
 # clean way means building ORT >= 1.22 static from source and pointing `ORT_LIB_LOCATION` at it.
-# docs/ARCHITECTURE.md section 5 has the detail.
+# docs/architecture/05-single-exe.md has the detail.
 #
 # The ort-sys pin is load-bearing for a second reason. Left to resolve it picks rc.13, whose build
 # script does not compile against ureq 3's TLS API.
@@ -73,7 +73,7 @@ winresource = "0.1"
 # The target is ONE hardened exe, no install. Half met: the BiRefNet weights are embedded in the
 # binary by `shot_classifier::birefnet`, so the most copyable thing Pproni owned is no longer a loose
 # file. `onnxruntime.dll` is still loaded from beside the exe — see the ort dependency above for
-# why, and docs/ARCHITECTURE.md section 5 for what closing it takes. Fat LTO over an embedded
+# why, and docs/architecture/05-single-exe.md for what closing it takes. Fat LTO over an embedded
 # ~179MB model makes release links slow and memory-hungry; that is a build-time cost only.
 [profile.release]
 opt-level = 3

@@ -6,18 +6,14 @@
 
 use super::geometry::{Grid, Rect};
 
-/// A binary instance mask in *working resolution* coordinates — i.e. the
-/// preprocessor's output space (longest side `config::WORKING_SIZE`), which
-/// is what the segmentation model actually ran on.
+/// A binary instance mask in *working resolution* coordinates — the preprocessor's output space
+/// (longest side `config::WORKING_SIZE`), which is what the segmentation model ran on.
 ///
-/// BiRefNet produces its mask at a fixed internal resolution — one square
-/// side, declared by the export itself and read from the model's input
-/// metadata at load time (`birefnet::input_size` rejects a dynamic axis), so
-/// it tracks whichever variant `build.rs` baked in. The working image is
-/// squashed to that square on the way in and the mask is resampled back out
-/// to the size here; that round trip is why the mask boundary is not
-/// pixel-accurate, and why the pass-2 refinement in [`super::refine`] exists
-/// at all.
+/// BiRefNet works at one fixed square side, read from the export's input metadata at load time
+/// (`birefnet::input_size` rejects a dynamic axis), so it tracks whichever variant `build.rs` baked
+/// in. The working image is squashed to that square and the mask resampled back; that round trip is
+/// why the mask boundary is not pixel-accurate, and why the pass-2 refinement in [`super::refine`]
+/// exists at all.
 #[derive(Debug, Clone)]
 pub struct Mask {
     pub width: u32,

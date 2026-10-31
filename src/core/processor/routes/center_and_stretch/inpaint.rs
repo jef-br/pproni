@@ -1,31 +1,26 @@
 //! R1 fallback: fill a segment of a line that has no background to stretch from.
 //!
-//! A line (a row in pass 1, a column in pass 2) is *fully bled* on one side when the product,
-//! grown by the clearance, runs to the border there: there is nothing to stretch and nothing to
-//! invent from. Those segments land here and get a flat BGC-or-white fill; the caller may then
-//! replace them with a clean neighbouring line's background. Every line that does have a source
-//! stays with [`super::compose`]; this module never touches them.
+//! A line (a row or a column) is *fully bled* on one side when the product, grown by the clearance,
+//! runs to the border there: there is nothing to stretch and nothing to invent from. Those segments
+//! land here and get a flat BGC-or-white fill; the caller may then replace them with a clean
+//! neighbouring line's background. Every line that does have a source stays with
+//! [`super::compose`]; this module never touches them.
 //!
-//! The context-colour fills ([`fill_segment`]'s `left_ctx`/`right_ctx` arms) are not used by R1 any
-//! more. If a wider inpainter proves necessary (narrow-band Telea / fast-marching, or an ONNX
-//! LaMa-style model), it slots in here behind the same [`fill_segment`] signature.
+//! R1 does not use [`fill_segment`]'s `left_ctx`/`right_ctx` arms. A wider inpainter, if ever
+//! needed, slots in behind the same signature. See docs/work-state/open-r1-stretch-follow-ups.md.
 
 use image::Rgb;
 
 use super::super::super::super::config;
 
-/// Fill `out` for one unstretchable sub-range of a scanline, choosing the strategy from whichever
-/// neighbour context is present.
+/// Fill `out`, one unstretchable sub-range of a line, from whichever neighbour context is present.
 ///
-/// * `left_ctx` / `right_ctx` — the final pixels of the two stretched runs sitting against this
-///   sub-range in the output line, or `None` when the sub-range sits at the end of the outer
-///   segment with nothing beyond it. "Left" means the lower output index; which image edge that
-///   lands on depends on the pass and the segment.
-/// * `bgc` — the global or per-edge background colour, when one was found. `None` falls through
-///   to a flat white fill, matching R3's default canvas colour.
+/// * `left_ctx` / `right_ctx` — the end pixels of the stretched runs either side of the sub-range
+///   ("left" = lower output index, whatever image edge that is), or `None` at the segment's end.
+/// * `bgc` — the global or per-edge background colour, if found; `None` gives flat white (R3's canvas).
 ///
-/// Noise is added at the standard deviation set by [`config::R1_INPAINT_NOISE_SIGMA`] so a flat
-/// fill does not read as a dead-flat seam against the JPEG-noisy stretched columns next to it.
+/// Noise at [`config::R1_INPAINT_NOISE_SIGMA`] (a standard deviation) keeps a flat fill from reading
+/// as a dead-flat seam against the JPEG-noisy stretched pixels next to it.
 pub fn fill_segment(
     out: &mut [Rgb<u8>],
     left_ctx: Option<Rgb<u8>>,

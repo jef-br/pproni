@@ -2,20 +2,13 @@
 //!
 //! Only call [`refine_edge`] for edges [`super::gate::gate`] already
 //! flagged - this does the real work pass 1 exists to avoid paying for
-//! on every instance:
+//! on every instance. Steps 1-5 (border-band slice of the working-resolution
+//! mask, in-memory full-res crop also reported on [`EdgeRefinement::crop_region`],
+//! trimap, FGC/BGC colour matting of the unknown ring, refined mask decides)
+//! are in the spec. See docs/specs/03-shot-classifier.md §3.1.
 //!
-//! 1. Intersect the working-resolution mask with the border band to find where along the edge the subject actually reaches.
-//!    (not the whole mask, just the slice near this edge) 
-//! 2. Map that region back to the original image and crop it at full res.
-//!    In-memory crop; the region is also reported on [`EdgeRefinement::crop_region`] for callers that want it.
-//! 3. Build a trimap from the upsampled working-resolution mask:
-//!    - interior = foreground
-//!    - exterior = background, a ring around the
-//!    - boundary = unknown (= where upsampling made the mask inaccurate).
-//! 4. Classify each unknown pixel by color distance to sampled FGC vs. BGC, at full res.
-//! 5. The refined mask, not the raw BiRefNet mask, says whether the boundary reaches the border at all.
-//! 6. A contact that reaches the border still has to earn the verdict:
-//!    [`graze_ratio`] rejects the ones where the silhouette runs along the edge rather than off it.
+//! Step 6: a contact that reaches the border still has to earn the verdict —
+//! [`graze_ratio`] rejects the ones where the silhouette runs along the edge rather than off it.
 
 use super::geometry::{Edge, EdgeView, Grid, Rect};
 use super::sampling::{sample_background_color, ColorStats};
@@ -150,11 +143,9 @@ pub fn refine_edge(input: &RefinementInput, edge: Edge, params: RefineParams) ->
     let refined_view = EdgeView::new(&refined, edge);
     let reaches_border = (0..refined_view.width()).any(|cx| refined_view.get(cx, 0));
 
-    // ...and step 6 asks whether that contact is a real bleed-off or only
-    // a graze. Reaching the border is necessary but not sufficient: a hem
-    // curving down to kiss the bottom edge reaches it just as surely as a
-    // subject the frame cuts in half, and only the second one gives R2 an
-    // edge to anchor a crop against.
+    // ...and step 6 asks whether that contact is a real bleed-off or only a graze. Reaching the
+    // border is not sufficient: a hem curving down to kiss the bottom edge reaches it as surely as
+    // a subject the frame cuts in half, and only the second gives R2 an edge to anchor a crop on.
     let narrow_px_full = ((params.narrow_band_px as f32) * scale).round().max(1.0) as u32;
     let coverage = graze_ratio(&refined, edge, band_px_full, narrow_px_full);
     let is_graze = coverage.is_some_and(|r| r < params.graze_ratio_max);
@@ -165,23 +156,11 @@ pub fn refine_edge(input: &RefinementInput, edge: Edge, params: RefineParams) ->
 
 /// Does the subject merely graze this edge rather than bleed off it?
 ///
-/// A subject the frame truncates holds the same coverage at every depth -
-/// its silhouette meets the border head-on and simply carries on past it.
-/// One that grazes runs *along* the border and curves away, so coverage
-/// grows the deeper you look. Comparing mean coverage in a narrow band
-/// against a wide one turns that into a single scale-free number: about
-/// 0.61 for a graze, 0.93 and up for a real bleed-off.
-///
-/// Measured on the *refined* mask, in crop coordinates, so `wide` and
-/// `narrow` arrive already scaled to full resolution. It has to be the
-/// refined mask: where matting moved the boundary, the raw mask's profile
-/// describes a silhouette that is no longer the one being judged - a raw
-/// mask stopping short of a border its subject really reaches has zero
-/// coverage in the narrow band and would read as a graze every time.
-///
-/// The ratio does not care how wide a column range it is taken over - the
-/// width cancels - so the crop spanning only the contact region rather
-/// than the whole edge leaves it unchanged.
+/// Mean coverage in a narrow band over that in a wide one: about 0.61 for a graze, 0.93 and up for
+/// a real bleed-off. Takes the *refined* mask in crop coordinates, so `wide` and `narrow` arrive
+/// already scaled to full resolution; the raw mask would read a border its subject really reaches
+/// as a graze. Why it works, and why the crop's width does not change it:
+/// See docs/architecture/modules/core-shot-classifier-refine.md.
 fn graze_ratio(mask: &Mask, edge: Edge, wide_px: u32, narrow_px: u32) -> Option<f32> {
     let view = EdgeView::new(mask, edge);
     let wide = wide_px.min(view.height());
@@ -222,22 +201,13 @@ struct Trimap {
 }
 
 impl Trimap {
-    /// `ring_px` is the width of the "unknown" ring straddling the mask
-    /// boundary, in crop-resolution pixels - this ring is exactly where
-    /// the working-resolution mask's upsampling made it inaccurate.
+    /// `ring_px` is the width of the "unknown" ring straddling the mask boundary, in crop-resolution
+    /// pixels - this ring is exactly where the working-resolution mask's upsampling made it inaccurate.
     ///
-    /// A pixel is in the ring when some pixel within `ring_px` of it,
-    /// along a row or a column, holds the opposite value. Asking that
-    /// pixel by pixel meant walking `ring_px` steps in four directions
-    /// each time, and `ring_px` scales with the original - tens of steps
-    /// on a large photo, never short-circuited for the uniform
-    /// background that dominates the crop.
-    ///
-    /// Walking runs instead answers it in one pass per axis. Within a run
-    /// of equal values the nearest opposite pixel is whatever sits just
-    /// past the run's end, so the ring is the first and last `ring_px`
-    /// pixels of every run that actually has a neighbouring run - no
-    /// per-pixel search at all.
+    /// A pixel is in the ring when some pixel within `ring_px` of it, along a row or a column, holds
+    /// the opposite value. Found by walking runs, one pass per axis: the ring is the first and last
+    /// `ring_px` pixels of every run that has a neighbouring run.
+    /// See docs/architecture/modules/core-shot-classifier-refine.md.
     fn from_mask(mask: &Mask, ring_px: u32) -> Trimap {
         let (w, h) = (mask.width, mask.height);
         let at = |x: u32, y: u32| mask.data[(y * w + x) as usize] != 0;

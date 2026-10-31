@@ -1,21 +1,12 @@
 //! Framing: what the padding or frame round the picture means, read from the two trims and the mask.
 //!
-//! The model runs once, on trim 1's crop, and its mask is the one reliable fact about the picture.
 //! Trim 1 ([`crate::core::preprocessor::optimizer`]) boxes everything that is not backdrop; what it
-//! trims off is either real backdrop round a floating product, or something that is not part of the
-//! picture at all: white bars on one axis, or a frame all the way round. This module tells them apart.
-//!
-//! * **Bars** — trim 1 cut both sides of ONE axis and next to nothing of the other, and the subject
-//!   touches an edge (EIX is not `0000`), and the two cut sides are of similar width (padding is added
-//!   evenly; plain backdrop round an off-centre product is not). The bars are padding, not backdrop to
-//!   stretch, and the content behind them (a lifestyle scene, as on images 41 and 46) cannot be
-//!   stretched convincingly. The result is [`Decision::Centre`]: R1 cuts the square from the content
-//!   box with equal padding either side of it, aligned on nothing.
-//! * **Frame** — EIX is `0000`, trim 1 cut all four sides, trim 2 found nothing more to cut, and trim
-//!   1's box is square. The ring outside it is a frame: [`Decision::Peel`] crops the picture to
-//!   trim 1's box, and the edge check runs again on the cropped picture (the product the frame
-//!   hid now meets the new border). Never when trim 1's box is just the product (it equals the
-//!   mask), which is what a plain backdrop with a floating product gives.
+//! trims off is real backdrop round a floating product, or not picture at all. The mask of the one
+//! model run, on trim 1's crop, is the reliable fact that tells them apart.
+//! * **Bars** on one axis: [`Decision::Centre`], R1 cuts the square from the content box with equal
+//!   padding either side, aligned on nothing. See docs/architecture/02-modules-core.md.
+//! * **Frame** all round: [`Decision::Peel`] crops to trim 1's box and the edge check runs again (the
+//!   product the frame hid now meets the new border). See docs/work-state/2026-10-21-trims-and-framing.md.
 //!
 //! Everything else is [`Decision::Keep`]. The decisions are pure, so they are tested without a model.
 

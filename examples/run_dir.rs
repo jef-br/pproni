@@ -1,47 +1,15 @@
-//! Batch-run the shot classifier (BiRefNet backend) over a folder of
-//! images. For every input, these files are written into `<output_dir>`:
-//!
-//!   <stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].<ext>
-//!                          the input image, copied verbatim, renamed   (step 0)
-//!                          with the shot code derived so far
-//!   <stem>___3-class_10_SEGMASK.png
-//!                          BiRefNet foreground mask                    (step 1)
-//!   <stem>___3-class_20_REFINE.png
-//!                          white canvas the size of the segmask with   (step 2)
-//!                          each gated edge's refined region pasted back
-//!                          (only if an edge was gated)
-//!
-//! plus `zzz_results.json` (named to sort last). Snapshots follow the diagram-tag protocol
-//! (`docs/diagrams/README.md`): `<stem>___<moduleindex>_<substep>_<TAG>.png`, where `<TAG>` is the
-//! green-bold word on the matching rectangle of `JBA2B.drawio.svg`, verbatim. Sorting the names
-//! alphabetically reproduces pipeline order, and the flat output keeps each image's files together.
-//!
-//! Shot code (partial — BG type comes later):
-//!   EIX  edge intersection, 4-bit TRBL (top-right-bottom-left). `1000`
-//!        = top only, `0110` = right+bottom, `0000` = no intersection.
-//!        Always the classifier's real verdict — a `mask_too_small` flag
-//!        (probable full-bleed close-up: tiny mask, no uniform background)
-//!        is reported separately (console/JSON) and never overrides it.
-//!   BGC  background colour: dominant colour of the inverse BiRefNet
-//!        mask, emitted only when it covers >97.5% of that region.
-//!   FGC  foreground colour: weighted-median colour of the largest colour
-//!        blob inside the mask. Omitted if the subject is too small to
-//!        sample.
-//!   `--` separates the stem from the tags; `=` stands in for the spec's
-//!   `:` (a colon is illegal in Windows filenames).
-//!
-//! The EIX bits come from `pproni::core::shot_classifier::shotcode`, the colours from
-//! `pproni::core::exporter::colors` — the same code the pipeline exporter uses for its
-//! `PPRONI_DEBUG_TAGS` output.
+//! Batch-run the shot classifier (BiRefNet backend) over a folder of images. For every input it
+//! writes into `<output_dir>` the input renamed with its partial shot code
+//! (`<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].<ext>`), the segmask and, if an edge was gated,
+//! the refine canvas; plus `zzz_results.json`. See docs/architecture/modules/examples.md.
 //!
 //! Usage:
 //!   cargo run --release --example run_dir -- <input> [output_dir]
 //!   <input> is a folder of images or a single image file.
 //!
-//! Model:
-//!   By default this runs the same weights the exe ships with, embedded at build time. Set
-//!   BIREFNET_ONNX to a path to run a different export instead — that is what this harness is for.
-//!   ORT_DYLIB_PATH overrides the ONNX Runtime library (default: ./onnxruntime.dll).
+//! Model: the weights embedded in the exe by default. Set BIREFNET_ONNX to a path to run a different
+//! export instead — that is what this harness is for. ORT_DYLIB_PATH overrides the ONNX Runtime
+//! library (default: ./onnxruntime.dll).
 
 use pproni::core::shot_classifier::geometry::Rect;
 use pproni::core::shot_classifier::refine::{RefineParams, RefinementInput};
@@ -53,9 +21,8 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_OUTPUT: &str = "test data/OUTPUT";
 
-// Snapshot name suffixes, `___<moduleindex>_<substep>_<TAG>.png`. Each TAG is the green-bold word on
-// its rectangle of `docs/diagrams/JBA2B.drawio.svg` and is copied verbatim. `3-class` is the Shot
-// Classifier container; the substeps are gapped by 10s in execution order inside it.
+// Snapshot name suffixes; each TAG must match its rectangle's green-bold word on
+// `docs/diagrams/JBA2B.drawio.svg` verbatim. See docs/diagrams/run-dir-tag-protocol.md.
 const SEGMASK_SUFFIX: &str = "___3-class_10_SEGMASK.png";
 const REFINE_SUFFIX: &str = "___3-class_20_REFINE.png";
 
@@ -69,11 +36,9 @@ fn main() {
 
     let model_path = std::env::var("BIREFNET_ONNX").ok();
     let ort_lib = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "onnxruntime.dll".into());
-    // Hand the loader an absolute path. A bare file name goes to the OS library
-    // search, which reaches System32 — where Windows ships its own, older
-    // onnxruntime.dll — before it ever looks at the working directory. The
-    // result is a version-mismatch panic naming a DLL you did not choose.
-    // `join` on an already-absolute ORT_DYLIB_PATH keeps it unchanged.
+    // Absolute path, or the OS search finds System32's older onnxruntime.dll first (version-mismatch
+    // panic); `join` leaves an absolute `ORT_DYLIB_PATH` as is.
+    // See docs/architecture/modules/examples.md.
     let ort_lib = std::env::current_dir()
         .map(|dir| dir.join(&ort_lib))
         .ok()

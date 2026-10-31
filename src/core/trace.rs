@@ -1,22 +1,15 @@
 //! Debug trace: save every intermediate image of a run, so a bad result can be followed back to the
-//! stage that caused it.
+//! stage that caused it. Inert unless the `PPRONI_DEBUG_TAGS` marker sits next to the exe (one
+//! cached check per process). See docs/architecture/02-debug-tags.md.
 //!
-//! **Turning it on.** The same marker the exporter looks for: a file named `PPRONI_DEBUG_TAGS` next
-//! to the running executable. One check per process, cached. With no marker, every function here
-//! is inert. Debug and release both honour it — same scope as the exporter's filename tags and
-//! `<stem>_segmask.jpg`.
+//! Per image, into the output image's folder: `<stem>  -  <NN>.jpg`, one per stage, `NN` fixed per
+//! stage in [`stage`] (a skipped stage leaves a gap, nothing is renumbered); and `<stem>  -  log.txt`,
+//! the stages written, in order, plus the numbers behind each decision (mask coverage, which edges
+//! the gate flagged, the graze ratio, the route and why).
 //!
-//! **What gets written**, per image, into the output image's folder (next to the exporter's
-//! `<stem>_segmask.jpg`):
-//! * `<stem>  -  <NN>.jpg` — one file per stage; `NN` comes from [`stage`]. Numbers are fixed per
-//!   stage, not counted per run, so `10` is the model input on every image and a skipped stage
-//!   leaves a gap rather than renumbering its neighbours.
-//! * `<stem>  -  log.txt` — the stages that were written, in order, plus the numbers behind each
-//!   decision (mask coverage, which edges the gate flagged, the graze ratio, the route and why).
-//!
-//! **How to add a stage.** Pick the next free number in [`stage`], then call [`image`] where the
-//! picture exists, passing a closure that builds it. The closure only runs while tracing, so
-//! building an overlay costs nothing in a normal run.
+//! To add a stage: take the next free number in [`stage`] and call [`image`] where the picture
+//! exists, with a closure that builds it. The closure runs only while tracing, so an overlay costs
+//! nothing in a normal run.
 
 use super::preprocessor::optimizer::EdgeKind;
 use super::shot_classifier::geometry::Rect;
@@ -26,32 +19,13 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 /// Stage numbers. A group takes a block of ten so a stage can be added without renumbering.
+/// What each picture shows, colour by colour: see docs/architecture/modules/core-trace.md.
 pub mod stage {
-    pub const ORIGINAL: u8 = 1; // Preprocessing stage: image 01, exif+alpha+flat+color-profile
-    pub const LETTERBOX: u8 = 2;// Preprocessing stage: the flat-bar check on the original
-                                // - bar along each edge: green = backdrop, orange = flat in
-                                //   another colour, magenta = varied
-                                // - dimmed = bars the check would trim
-                                // - cyan = product proxy; the bright rest is where texture is measured
-                                // Emitted for every image
-    pub const TRIM: u8 = 3;     // Preprocessing stage: the two trims on the colour-balanced working copy
-                                // - cyan = trim 1's tight box
-                                // - yellow = trim 2's tight box (drawn only when it replaced trim 1)
-                                // - green = the backed-off crop BiRefNet is shown
-                                // Emitted for every image
-    pub const PRIMARY: u8 = 10; // Shot-Classifier stage:
-                                // - 10 = model input
-                                // - +1 = ImageNet-normalised input
-                                // - +2 = Raw logits; L=0→128, L<0 → 0-127, L>0 → 129-255
-                                // - +5 = segmask at working resolution
+    pub const ORIGINAL: u8 = 1; // Preprocessing: the original after EXIF, alpha, flatten, colour profile
+    pub const LETTERBOX: u8 = 2;// Preprocessing: the flat-bar check on the original
+    pub const TRIM: u8 = 3;     // Preprocessing: the two trims on the colour-balanced working copy
+    pub const PRIMARY: u8 = 10; // Shot classifier: 10 model input, then +1, +2 and +5
     pub const R1_PLAN: u8 = 90; // Plan view on the original
-                                // - subject box (cyan)
-                                // - R1's planned square (yellow)
-                                // - grey = invented area
-                                // - Semi-transparent edge bars for the gate/verdict
-                                //    - red = touches
-                                //    - orange = gated but cleared
-                                // Emitted for every image; subject and square are optional, a missing verdict or an impossible plan still produce a useful picture
 
 }
 

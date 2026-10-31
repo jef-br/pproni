@@ -1,11 +1,9 @@
-//! Output size envelope: scale so the longest side lands in [MIN_SIZE, MAX_SIZE].
+//! Output size envelope: scale so the longest side lands in [MIN_SIZE, MAX_SIZE]. The exporter
+//! starts here, so this is the one place the envelope is enforced.
+//! See docs/architecture/modules/core-exporter.md.
 //!
-//! Every route ends at the exporter, and the exporter starts here — so this is the one place the
-//! envelope is enforced, and no route can bypass it.
-//!
-//! The scale is always uniform: aspect ratio is preserved, so a route that hands over a square gets
-//! a square back. It works on the longest side rather than assuming a square input, so a route that
-//! ever hands over a non-square image still lands inside the envelope.
+//! The scale is always uniform (a square stays square) and works on the longest side, so a route
+//! that ever hands over a non-square image still lands inside the envelope.
 
 use super::super::config::{MAX_SIZE, MIN_SIZE};
 use image::{imageops, RgbImage};

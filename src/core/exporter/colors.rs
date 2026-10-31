@@ -1,9 +1,7 @@
-//! BGC / FGC: the background and foreground colours the debug tags report.
-//!
-//! Measured once, here, from the true-colour working copy partitioned by the segmentation mask
-//! (background = inverse mask, foreground = mask). The preprocessor's colour optimiser never
-//! touches that copy, so the colours describe the original image, scaled to working resolution.
-//! Nothing upstream samples colour, and nothing downstream re-measures it.
+//! BGC / FGC: the background and foreground colours the debug tags report, measured once, here,
+//! from the true-colour working copy split by the mask (background = inverse mask, foreground =
+//! mask). The colour optimiser never touches that copy, so the colours describe the original image
+//! at working resolution. See docs/architecture/02-debug-tags.md.
 
 use super::super::shot_classifier::Mask;
 use image::{Rgb, RgbImage};

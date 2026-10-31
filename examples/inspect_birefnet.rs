@@ -10,11 +10,9 @@ use ort::session::Session;
 
 fn main() -> ort::Result<()> {
     let ort_lib = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "onnxruntime.dll".into());
-    // Hand the loader an absolute path. A bare file name goes to the OS library
-    // search, which reaches System32 — where Windows ships its own, older
-    // onnxruntime.dll — before it ever looks at the working directory. The
-    // result is a version-mismatch panic naming a DLL you did not choose.
-    // `join` on an already-absolute ORT_DYLIB_PATH keeps it unchanged.
+    // Absolute path, or the OS search finds System32's older onnxruntime.dll first (version-mismatch
+    // panic); `join` leaves an absolute `ORT_DYLIB_PATH` as is.
+    // See docs/architecture/modules/examples.md.
     let ort_lib = std::env::current_dir()
         .map(|dir| dir.join(&ort_lib))
         .ok()

@@ -6,15 +6,9 @@
 //! so the bar never sits on the batch's critical path. The bar disables itself when stdout is not
 //! a terminal, which keeps it out of the piped `<exe> <in> <out>` dev path.
 //!
-//! The footer is the block the shell wants held under the bar — the rule / callout / rule that
-//! tells the user how to interrupt. It is drawn once, with the first frame, and then left alone:
-//! only the bar line ever changes, so every later frame steps the cursor up to that one line,
-//! rewrites it, and steps back down. Nothing else writes to stdout while the batch runs (failures
-//! are collected, not printed), so the block stays where it was first drawn.
-//!
-//! Each frame goes out in a single `write_all`. Rust's stdout is a `LineWriter` and flushes on
-//! every newline it is handed, so printing the block line by line put a half-drawn frame on screen
-//! fifteen times a second — which the terminal is free to composite. That was the flicker.
+//! The footer is drawn once, with the first frame; later frames rewrite only the bar line, so
+//! nothing else may write to stdout while the batch runs. Each frame goes out in one `write_all`,
+//! never line by line, or the bar flickers. See docs/architecture/modules/app.md.
 
 use super::i18n::{self, Lang};
 use super::theme::{self, BOLD, RESET, TEAL};

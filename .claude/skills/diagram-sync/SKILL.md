@@ -16,7 +16,7 @@ description: >
 # Diagram sync
 
 Pproni documents its architecture with draw.io diagrams under `docs/diagrams/`, referenced
-from `docs/ARCHITECTURE.md`. They are real SVGs — GitHub renders them as images — but
+from `docs/architecture/06-diagram.md`. They are real SVGs — GitHub renders them as images — but
 each one also carries its full draw.io source embedded inside itself, so opening the
 same file in an editor drops you back into an editable diagram, not a dead picture.
 That dual nature is the thing to respect: treat the file as a diagram with a picture
@@ -33,7 +33,7 @@ no longer exists.
 
 `JBA2B.drawio.svg` was rebuilt against the current code on 2026-09-09 and is in sync;
 the drift that used to be listed here — a Shot Classifier and Processor still describing
-the retired detector — is gone. `docs/ARCHITECTURE.md` §6 says what each container
+the retired detector — is gone. `docs/architecture/06-diagram.md` says what each container
 covers. It now has six containers, not four: the proposed Pproni-Analyzer lane was replaced
 by a dev-harness lane for `examples/run_dir.rs`.
 
@@ -42,7 +42,7 @@ and **a diagram itself needs reading or editing** (are you touching the right la
 
 ## 1. Code changed — does a diagram need to follow?
 
-The maintenance rule (already stated in `CLAUDE.md` and `docs/ARCHITECTURE.md`): one
+The maintenance rule (source of truth: `docs/architecture/06-diagram.md`; restated in `CLAUDE.md`): one
 node per module, one node per `struct`/`enum`. If you added, renamed, or removed a
 module, a `struct`/`enum`, or a public function/method, check whether it's represented:
 
@@ -57,7 +57,7 @@ module, a `struct`/`enum`, or a public function/method, check whether it's repre
 3. If it exists and your change affects what the node says (renamed, resigned,
    added/removed a public method), edit the node. If it's new public surface with no
    node yet, add one. If you removed the code, remove the node — a node with no
-   matching file is exactly the drift `docs/ARCHITECTURE.md` warns about.
+   matching file is exactly the drift `docs/architecture/06-diagram.md` warns about.
 4. Make the diagram edit through the actual draw.io editor (see §2.2), and commit it
    alongside the code change — not as a follow-up.
 
@@ -109,7 +109,7 @@ drawing elements fall out of sync — the source of truth changes but the pictur
 renders doesn't, silently reintroducing the exact problem this convention exists to
 prevent.
 
-Edit diagrams the way `docs/diagrams/README.md` already describes: open the
+Edit diagrams the way `docs/diagrams/drawio-files.md` already describes: open the
 `.drawio.svg` in the **Draw.io Integration** VS Code extension
 (`hediet.vscode-drawio`), which understands the embedded format and regenerates both
 the XML and the rendered SVG together on save. Use containers (a real container shape,
@@ -156,7 +156,7 @@ walk every file in `docs/diagrams/` — today that is `JBA2B.drawio.svg` alone:
 4. Report drift plainly: nodes with no matching code (removed/renamed and diagram not
    updated), and public code with no matching node (added and diagram not updated).
 
-Check the outstanding list in `docs/ARCHITECTURE.md` §6 first — known drift is already
+Check the outstanding list in `docs/architecture/06-diagram.md` first — known drift is already
 written up there node by node, so start from it rather than rediscovering it.
 
 This is a manual, judgment-based comparison — not an automated AST-to-XML diff. Don't

@@ -1,29 +1,15 @@
-//! Shot classifier: is the subject touching an image border?
+//! Shot classifier: is the subject touching an image border? Answered from segmentation, not a
+//! bounding box, in two passes:
+//! - **Pass 1** ([`gate`]): a cheap per-edge scan of the mask's border band, which keeps pass 2
+//!   off the common case (subject nowhere near an edge).
+//! - **Pass 2** ([`refine`]): for each flagged edge, trimap + colour matting at full original
+//!   resolution. Only its refined result decides touching or not.
 //!
-//! A bounding box can't answer this reliably — the box can touch an
-//! edge while the actual subject silhouette doesn't (or vice versa for
-//! a diagonal pose). This module answers it with segmentation instead,
-//! in two passes:
-//!
-//! - **Pass 1** ([`gate`]): a cheap scan of the segmentation mask's
-//!   border-adjacent band, per edge, to decide which edges are even
-//!   worth checking precisely. This is the filter that keeps the
-//!   expensive path off the common case (subject nowhere near an edge).
-//! - **Pass 2** ([`refine`]): for edges pass 1 flagged, intersects the
-//!   mask with the border band, rescales that region to full original
-//!   resolution, crops it, and refines the boundary there via a
-//!   trimap + color-distance matting step — because the segmentation
-//!   mask is upsampled from a lower internal resolution and isn't
-//!   pixel-accurate at the boundary. Only the refined, full-resolution
-//!   result decides touching or not.
-//!
-//! [`segmentation::SegmentationModel`] abstracts the actual BiRefNet
-//! inference call, so the gate/refine logic can be exercised against a
-//! stand-in model. [`super::classify`] wires the real one up and feeds
-//! [`classify_instance`] the preprocessor's two resolutions.
-//!
-//! The classifier's last step is [`route`]: it reads the verdict, picks the route and sends the image
-//! to it. [`plan`] is the square R1 is told to cut, which the choice of route depends on.
+//! [`segmentation::SegmentationModel`] lets gate/refine run against a stand-in model;
+//! [`super::classify`] wires the real BiRefNet up and feeds [`classify_instance`] the
+//! preprocessor's two resolutions. Last, [`route`] reads the verdict, picks the route and sends
+//! the image to it; [`plan`] is the square R1 is told to cut, which the choice of route depends on.
+//! See docs/specs/03-shot-classifier.md.
 
 pub mod birefnet;
 pub(crate) mod cipher;

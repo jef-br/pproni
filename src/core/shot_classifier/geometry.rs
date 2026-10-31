@@ -1,12 +1,9 @@
-//! Edge-relative coordinate handling.
-//!
-//! The one idea this module exists for: every per-edge algorithm in this
-//! crate (border-band scanning, background-color sampling, the trimap
-//! ring) is written exactly once, in "top edge, depth increasing
-//! downward" terms, against the [`Grid`] trait. [`EdgeView`] then presents
-//! any of the other three edges as if they were the top edge, by
-//! transposing/flipping coordinates. Nothing edge-specific lives outside
-//! this file.
+//! Edge-relative coordinate handling. Every per-edge algorithm (border-band
+//! scanning, background-color sampling, the trimap ring) is written once,
+//! for the top edge, against [`Grid`]; [`EdgeView`] presents the other three
+//! edges as the top one by transposing/flipping coordinates. Nothing
+//! edge-specific lives outside this file.
+//! See docs/architecture/02-modules-shot-classifier.md.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Edge {
@@ -130,12 +127,10 @@ impl Rect {
 /// Prefix sums over a boolean grid, so "is any cell set inside this
 /// rectangle?" costs four lookups instead of scanning the rectangle.
 ///
-/// Exists for [`super::sampling`], which asks that question once per
-/// pixel of a sampling strip with a window whose radius scales with the
-/// image — at full resolution that window is thousands of pixels, and
-/// the answer for a background pixel is only reached after scanning all
-/// of them. Building the table is one pass over the rows the strip can
-/// actually reach; every query after it is O(1).
+/// Exists for [`super::sampling`]'s per-pixel mask window. Building the
+/// table is one pass over the rows the strip can actually reach; every
+/// query after it is O(1). See
+/// docs/architecture/modules/core-shot-classifier-sampling.md.
 pub(crate) struct BoolSummedArea {
     width: u32,
     height: u32,

@@ -1,50 +1,6 @@
-# Diagrams
+# run_dir: tagging a diagram Rectangle and naming its debug image
 
-WYSIWYG diagrams for Pproni, edited as draw.io (diagrams.net) files — free, no account,
-no server.
-
-## One-time setup
-
-VS Code extension recommendation lives in `.vscode/extensions.json` (gitignored like the
-rest of `.vscode/`, so it's local-only — open this folder in VS Code and accept the
-"install recommended extensions" prompt, or install manually: search **Draw.io
-Integration** (`hediet.vscode-drawio`) in the Extensions view.
-
-## Creating a diagram
-
-`Ctrl+Shift+P` → **Draw.io: New Diagram** → save it here as `<name>.drawio.svg` (not
-plain `.drawio`). That extension matters:
-
-- It's a real SVG, so GitHub renders it as an image in the repo view and PR diffs —
-  nothing extra needed on GitHub's side.
-- The full diagram source is embedded in the SVG's own metadata, so reopening the same
-  file in VS Code drops you back into the drag-and-drop editor. One file, no export step.
-
-## Editing
-
-Open the `.drawio.svg` file in VS Code — it opens straight into the draw.io canvas.
-Drag shapes, draw connectors, resize, recolor, same as the web app.
-
-## Grouping — use containers, not just proximity
-
-For things that belong together conceptually, use an actual **container** shape (draw a
-rectangle, tick "Container" in the format panel) rather than just placing shapes near
-each other. Dropping a shape into a container re-parents it in the XML
-(`parent="<container id>"`), so the grouping is explicit in the file, not just implied
-by pixel position. Give the container a title and it reads as a labeled group visually
-too.
-
-## Naming
-
-kebab-case, one diagram per concern, e.g. `pipeline-overview.drawio.svg`.
-
-## Asking Claude to look at a diagram
-
-Point Claude at the file path (or attach it). It reads the embedded XML directly for
-the exact node/edge/container structure, and can render the SVG to a PNG when it needs
-to check the visual layout too — same file, no separate format needed for either side.
-
-## run_dir: tagging a diagram Rectangle and naming its debug image
+[Up: table of contents](TOC.md)
 
 The protocol lives on `examples/run_dir.rs`, which currently writes two snapshots
 (`SEGMASK`, `REFINE`). `JBA2B.drawio.svg` is the only diagram in this folder, so every
@@ -54,7 +10,7 @@ tagged Rectangle lives there. Out of scope for this protocol: the shipped export
 
 `examples/run_dir.rs` (a dev-only harness, see its own doc comment) writes one
 intermediate image per internal decision point it snapshots. Each of those images is tied to
-a specific Rectangle inside a Container on `docs/diagrams/JBA2B.drawio.svg` — the detailed
+a specific Rectangle inside a Container on [JBA2B.drawio.svg](JBA2B.drawio.svg) — the detailed
 per-decision flowchart. Whenever a new snapshot moment is added:
 
 1. Find that Rectangle in its Container on `JBA2B.drawio.svg` and prepend its text with a
@@ -64,7 +20,8 @@ per-decision flowchart. Whenever a new snapshot moment is added:
    the tag is lost next time the file is reopened in the VS Code drawio editor) and the
    rendered SVG's duplicate text (the `<div>` inside `<foreignObject>` *and* the `<text>`
    fallback — GitHub's SVG sanitizer may not render `foreignObject`, so the fallback is what
-   shows there). If no single existing rectangle covers the stage (branches merge or
+   shows there). Before writing a tag, check both layers for an existing one: copy its exact
+   wording and colour, and fill in only the layer that lacks it. If no single existing rectangle covers the stage (branches merge or
    diverge), tag every terminal rectangle that could produce that snapshot with the same
    tag rather than inventing a new box.
 2. Name the output file `<original stem>___<moduleindex>_<substep>_<TAG>.png`, so sorting

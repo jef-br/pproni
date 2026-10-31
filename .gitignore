@@ -9,7 +9,7 @@ MD/
 graphify-out/
 
 # Model + ONNX Runtime: build inputs, compiled into the exe, never in the repo
-# (see docs/ARCHITECTURE.md 5). Every .onnx lives in models/ - see models/README.md.
+# (see docs/architecture/05-single-exe.md). Every .onnx lives in models/ - see models/README.md.
 *.onnx
 *.onnx.data
 onnxruntime.dll
@@ -25,3 +25,6 @@ DirectML.dll
 # Python bytecode from tools/
 __pycache__/
 *.pyc
+
+# Analysis images: local only (some are product photos; the repo is public)
+docs/analysis/**/images/

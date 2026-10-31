@@ -1,11 +1,9 @@
 //! ChaCha20 keystream (RFC 8439) used only to obfuscate the embedded model at rest.
 //!
-//! This is deliberately *not* a security boundary. The key ships inside the binary — anyone who
-//! reverses the exe recovers it — so the goal is not secrecy but friction: the model no longer
-//! carves straight out of the file with `binwalk`/`strings`, and the decrypted bytes exist only in
-//! heap memory for as long as ONNX Runtime needs to copy them into its session. XOR-symmetric, so
-//! the same routine encrypts (in `build.rs`) and decrypts (at load). No MAC — integrity is not a
-//! goal here, and a corrupted model simply fails the session build in `core::preflight`.
+//! Deliberately *not* a security boundary: the key ships inside the binary. XOR-symmetric, so the
+//! same routine encrypts (in `build.rs`) and decrypts (at load). No MAC — integrity is not a goal,
+//! and a corrupted model simply fails the session build in `core::preflight`.
+//! See docs/architecture/05-single-exe.md.
 
 const CONSTANTS: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
 

@@ -1,19 +1,14 @@
 //! Part C — re-framing a trimmed no-backdrop / textured scene to a square.
 //!
-//! After the preprocessor trims letterbox/pillarbox bars (`preprocessor::optimizer::trim_letterbox`),
-//! a textured scene must be re-framed to a square **without** R1's background stretch — stretching a
-//! textured scene invents a smeared fill across the overhang (measured on 268/46). The plan's
-//! priority, highest first:
+//! R1 calls this when the preprocessor trimmed flat letterbox/pillarbox bars round a textured scene
+//! (`preprocessor::optimizer::trim_letterbox`, `Prepared::letterbox`). Such a scene is reframed
+//! **without** R1's stretch, which smears a textured overhang (measured on 268/46).
+//! [`reframe_to_square`] tries, highest first:
 //!
-//! 1. **Crop** a square that preserves the whole subject — no invented pixels. [`square_crop_preserving`].
-//! 2. **Seam-carve** to extend the scene, accepted only if a perceptual-quality check passes.
-//!    [`seam_carve_to_square`] grows the short axis with minimum-energy seam insertion and rejects
-//!    (returns `None`) when the cheapest seams still cross too much structure — the energy threshold
-//!    is `config::R1_SEAM_CARVE_MAX_SEAM_ENERGY`.
-//! 3. **White-pad** as a last resort. [`white_pad`].
-//!
-//! [`reframe_to_square`] applies that priority order. R1 calls it when the preprocessor found flat
-//! letterbox/pillarbox bars round a textured scene (`Prepared::letterbox`).
+//! 1. **Crop** a square that keeps the whole subject, no invented pixels: [`square_crop_preserving`].
+//! 2. **Seam-carve** (minimum-energy seam insertion), rejected when the cheapest seams cross too
+//!    much structure (`config::R1_SEAM_CARVE_MAX_SEAM_ENERGY`): [`seam_carve_to_square`].
+//! 3. **White-pad**, the last resort: [`white_pad`].
 
 use crate::core::config::R1_SEAM_CARVE_MAX_SEAM_ENERGY;
 use crate::core::shot_classifier::geometry::Rect;

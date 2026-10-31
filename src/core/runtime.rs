@@ -1,21 +1,11 @@
 //! The ONNX Runtime shared library, carried inside the executable.
 //!
-//! Pproni ships as one file. The BiRefNet weights are already compiled in
-//! (`shot_classifier::birefnet`); this module does the same for
-//! `onnxruntime.dll`, the last file that used to sit beside the exe.
-//!
 //! `ort`'s `load-dynamic` needs a real path to `LoadLibrary`, so the
-//! embedded copy is written out once to a per-user cache directory
-//! (`%LOCALAPPDATA%`, falling back to the temp dir) and the path to that
-//! copy is handed to `ort::init_from`. The extraction is
-//! keyed on the library's size + a content sample: a rebuild against a
-//! different runtime lands in a different directory, and repeat runs reuse
-//! the file already there.
-//!
-//! This exists only while the runtime cannot be linked in — see
-//! `Cargo.toml`'s `ort` entry and `docs/ARCHITECTURE.md` §5. When a static
-//! ORT >= 1.22 is available, this module and `birefnet::init_runtime` both
-//! delete outright.
+//! embedded copy is written out once to a per-user cache directory, keyed
+//! on its size + a content sample, and that path goes to `ort::init_from`.
+//! This exists only while the runtime cannot be linked in (`Cargo.toml`'s
+//! `ort` entry); with a static ORT >= 1.22, this module and
+//! `birefnet::init_runtime` both delete. See docs/architecture/05-single-exe.md.
 
 use std::fs;
 use std::io::Write;
@@ -23,10 +13,8 @@ use std::path::{Path, PathBuf};
 
 /// The DirectML build of ONNX Runtime, compiled into the executable.
 ///
-/// Gitignored and expected at the repo root, exactly like the `.onnx`
-/// weights: a missing file is a *build* failure naming it, not a runtime
-/// surprise. This is the build that can run the model on a graphics card;
-/// it also runs it on the CPU, so it is the only runtime Pproni carries.
+/// Gitignored, at the repo root; a missing file fails the build. It runs the
+/// model on a graphics card or the CPU, so it is the only runtime Pproni carries.
 static DYLIB_BYTES: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime-directml.dll"));
 

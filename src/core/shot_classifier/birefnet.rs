@@ -1,32 +1,14 @@
-//! Real BiRefNet (dichotomous image segmentation) inference, via ONNX
-//! Runtime. This is a pure foreground/background model: no boxes, no
-//! classes, no NMS — one sigmoid mask at full model resolution answering
-//! "subject or not" per pixel.
-//!
-//! Verified against exported `BiRefNet_lite` ONNX models:
-//! - Input `input_image`: `[1, 3, S, S]` float32, RGB, resized (not
-//!   letterboxed — BiRefNet's own preprocessing is a plain resize) and
-//!   ImageNet-normalized (mean `[0.485, 0.456, 0.406]`, std
-//!   `[0.229, 0.224, 0.225]`). The side `S` (512 and 1024 are the common
-//!   full-size exports; a smaller `S` trades edge accuracy for far less
-//!   memory) is read from the model's own input metadata at load time,
-//!   not hardcoded.
-//! - Output `output_image`: `[1, 1, S, S]` float32 — raw logits; apply
-//!   sigmoid, threshold, resize back to the source image size.
-//!
-//! Note: BiRefNet's decoder uses deformable convolutions. A stock export makes them a single native
-//! `DeformConv` op, which DirectML cannot run. On this branch the shipped model has those 20 nodes
-//! rewritten as `GridSample` + `Conv` (same weights, same maths — masks match the original to
-//! float rounding), so the one embedded model runs on a graphics card or on the CPU.
+//! Real BiRefNet (dichotomous image segmentation) inference, via ONNX Runtime: one foreground mask
+//! per image, no boxes or classes. The input/output tensors (side `S` read from the model, not
+//! hardcoded) and why the shipped model has no `DeformConv` are on the module page.
+//! See docs/architecture/modules/core-shot-classifier-birefnet.md.
 //!
 //! Where it runs, best first: a real graphics card (most dedicated video memory), then a
 //! shared-memory one, then the CPU — see [`BiRefNetModel::build`] and [`BiRefNetModel::backend`].
 //!
-//! To slot into the existing gate/refine pipeline unchanged, the whole-
-//! image mask is wrapped as a single [`Instance`] whose `bbox` is the
-//! full image (there's no per-object box to report) and whose
-//! `class_id`/`confidence` are unused placeholders — [`SegmentationModel`]
-//! only cares about the mask from here on.
+//! To slot into the gate/refine pipeline unchanged, the mask is wrapped as a single [`Instance`]
+//! whose `bbox` is the full image (there's no per-object box) and whose `class_id`/`confidence` are
+//! unused placeholders — [`SegmentationModel`] only cares about the mask from here on.
 
 use super::geometry::Rect;
 use super::gpu_adapters;
@@ -39,17 +21,12 @@ use ort::session::Session;
 use ort::value::Tensor;
 use std::sync::Mutex;
 
-/// The BiRefNet weights, encrypted at rest and compiled into the executable.
+/// The BiRefNet weights, encrypted at rest and compiled into the executable by `build.rs` (from the
+/// plaintext its `MODEL_FILE` names in `models/`; a missing one fails the *build*).
 ///
-/// Pproni ships as one file, so the model is part of the binary rather than a `.onnx` beside it. It is
-/// stored encrypted: `build.rs` reads the gitignored plaintext named by its `MODEL_FILE` out of
-/// `models/`, encrypts it under a per-build key, and emits the blob to `OUT_DIR` — so the plaintext model
-/// is never a static string in the image and does not carve out with `binwalk`/`strings`. A missing
-/// plaintext is a *build* failure naming the file, which is the right time to find out.
-///
-/// This is obfuscation, not secrecy: [`MODEL_KEY`]/[`MODEL_NONCE`] ship in the binary too (also
-/// emitted by `build.rs`, also out of git). [`load`] decrypts into a heap buffer that lives only
-/// until ONNX Runtime copies the graph into its session; the plaintext never touches disk.
+/// Obfuscation, not secrecy: [`MODEL_KEY`]/[`MODEL_NONCE`] ship in the binary too. [`load`] decrypts
+/// into a heap buffer that lives only until ONNX Runtime copies the graph into its session; the
+/// plaintext never touches disk. See docs/architecture/05-single-exe.md.
 static ENC_MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/model.onnx.enc"));
 
 // MODEL_KEY / MODEL_NONCE, generated fresh for this build by build.rs (never committed).
@@ -88,12 +65,9 @@ impl BiRefNetModel {
     ///
     /// The path is checked before `ort` is touched: `ort::init_from(..).commit()` *panics* rather
     /// than returning `Err` when the dylib is missing, so without this the operator gets a stack
-    /// trace out of a dylib loader instead of a sentence naming the file.
-    ///
-    /// This exists only because the runtime cannot yet be linked in — see `Cargo.toml`'s `ort`
-    /// entry. The path handed in is `core::runtime`'s temp copy of the embedded `onnxruntime.dll`,
-    /// not a file beside the exe. When a static ORT >= 1.22 is available, this function and
-    /// `core::runtime` both go.
+    /// trace instead of a sentence naming the file. The path is `core::runtime`'s temp copy of the
+    /// embedded `onnxruntime.dll` (see `Cargo.toml`'s `ort` entry); this function goes once a static
+    /// ORT >= 1.22 exists. See docs/architecture/05-single-exe.md.
     pub fn init_runtime(onnxruntime_dylib_path: impl AsRef<std::path::Path>) -> Result<(), String> {
         let dylib = onnxruntime_dylib_path.as_ref();
         if !dylib.is_file() {
@@ -172,13 +146,9 @@ impl BiRefNetModel {
         device_id: Option<i32>,
         commit: &impl Fn(SessionBuilder) -> ort::Result<Session>,
     ) -> ort::Result<Session> {
-        // One intra-op thread on purpose: `app::batch` fans images across cores
-        // with rayon, so the parallelism lives one level up. Peak memory tracks
-        // that fan-out — roughly 400MB of activations per concurrent worker —
-        // and not the optimization level: measured session-init peak is 393MB
-        // at Level1, Level2 and Level3 alike. An earlier comment here blamed
-        // Level3 for an OOM during session init; that was a 4GB CI container,
-        // not a property of the graph.
+        // One intra-op thread on purpose: `app::batch` fans images across cores with rayon, so the
+        // parallelism lives one level up. Peak memory (~400MB per worker) tracks that fan-out, not
+        // the optimization level. See docs/architecture/modules/core-shot-classifier-birefnet.md.
         let mut builder = Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_memory_pattern(false)?
@@ -234,15 +204,11 @@ fn input_dims(session: &Session) -> Result<(u32, u32), String> {
 
 /// The logit a probability corresponds to — the inverse of a sigmoid.
 ///
-/// A sigmoid is monotonic, so asking whether it clears a threshold is the
-/// same question as asking whether the raw logit clears this. Converting
-/// the threshold costs one `ln` per image; converting every pixel cost an
-/// `exp` per *output* pixel, near a million of them at working resolution.
-///
-/// A threshold outside `(0, 1)` maps to an infinity and keeps the answer
-/// the sigmoid form gave: at `>= 1` nothing passes, at `<= 0` everything
-/// does. At the default 0.5 the two forms agree exactly — `sigmoid(0)` is
-/// 0.5 with no rounding — so the shipped mask is unchanged pixel for pixel.
+/// A sigmoid is monotonic, so thresholding the raw logit at this answers the same question as
+/// thresholding the sigmoid, for one `ln` per image. A threshold outside `(0, 1)` maps to an
+/// infinity and keeps the sigmoid answer: at `>= 1` nothing passes, at `<= 0` everything does. At
+/// 0.5 the two agree exactly (`sigmoid(0)` is 0.5 with no rounding).
+/// See docs/architecture/modules/core-shot-classifier-birefnet.md.
 fn logit(p: f32) -> f32 {
     (p / (1.0 - p)).ln()
 }
@@ -292,14 +258,10 @@ impl SegmentationModel for BiRefNetModel {
             ));
         }
 
-        // Resize the model-resolution mask back to the working image's
-        // own dimensions with nearest-neighbor sampling on the threshold
-        // result (matches how the mask will be consumed downstream — a
-        // binary mask, not a soft alpha).
-        //
-        // The threshold moves into logit space once, and the column map is
-        // shared by every row: both were per-pixel work whose answer never
-        // varied per pixel.
+        // Resize the model-resolution mask back to the working image's size, nearest-neighbor on the
+        // thresholded result: downstream consumes a binary mask, not a soft alpha. The threshold
+        // moves into logit space once and the column map is shared by every row — neither answer
+        // varies per pixel.
         trace::image(self.trace_base + 2, trace::MODEL_STEPS[2], || trace::stretched_gray(logit_data, in_w, in_h));
         let (out_w, out_h) = (image.width(), image.height());
         let threshold = logit(self.config.mask_threshold);

@@ -22,10 +22,9 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
     let mut prep = preprocessor::prepare(input, options)?;
     let mut classified = classify(&prep);
 
-    // Headcut (`maria_antonieta`): post-classify, pre-framing. When EIX leaves Left or Right free,
-    // the picture has room on a side, so we run the small philtrum detector on a sub-section of
-    // the optimised image and cut above the philtrum. Peel-style rebuild: original/working/mask
-    // are cropped, the edge judge re-runs on the cropped mask, no second BiRefNet pass.
+    // Headcut (`maria_antonieta`), post-classify, pre-framing: cut above the philtrum, then a
+    // Peel-style rebuild (original/working/mask cropped, the edge judge re-run, no second BiRefNet
+    // pass). See docs/work-state/2026-10-28-headcuts.md.
     if options.enable_headcuts {
         if let Some((class, mask)) = classified.as_ref() {
             if headcut_eligible(class) {
@@ -36,9 +35,9 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
                         w: prep.working.width(),
                         h: prep.working.height().saturating_sub(cut_y),
                     };
-                    // White bars (trim 1 cut both sides of one axis) are padding, not picture: leave them
-                    // out of the cut picture, and cut only if what is left below the philtrum is deep
-                    // enough. If not, no headcut: the bars rule below centres the whole picture.
+                    // White bars are padding: leave them out of the cut picture, and cut only if enough
+                    // is left below the philtrum; if not, the bars rule below centres the whole picture.
+                    // See docs/work-state/2026-10-30-headcut-on-bars-image.md.
                     let (bars, why) = framing::decide(
                         prep.working.dimensions(),
                         prep.trims.first,
@@ -166,15 +165,13 @@ fn peel(prep: &Prepared, frame: Rect) -> Prepared {
     }
 }
 
-/// Run the shot classifier: the model sees the optimiser's crop, the edge checks the true-colour image.
+/// Run the shot classifier, once: the model sees the optimiser's crop (trim 1's), the edge checks the
+/// true-colour image. The mask comes out with the verdict for the exporter's debug tags.
+/// See docs/architecture/02-debug-tags.md.
 ///
-/// `None` means no verdict — the model is unavailable, or inference failed on this image. That is
-/// not an error for the batch: `shot_classifier::route` sends a no-verdict image down R3, which frames it
-/// safely without claiming to know where the subject is.
-///
-/// The model runs once, on trim 1's crop. The mask is carried out alongside the verdict: the exporter
-/// samples the BGC/FGC debug tags from it and writes it as `<stem>_segmask.jpg` when
-/// `PPRONI_DEBUG_TAGS` is set.
+/// `None` means no verdict (model unavailable, or inference failed on this image); not a batch error:
+/// `shot_classifier::route` sends it down R3, which frames it safely without claiming to know where
+/// the subject is. See docs/architecture/01-why-classification-is-optional.md.
 fn classify(prep: &Prepared) -> Option<(ShotClassification, Mask)> {
     use crate::core::shot_classifier::{CroppedModel, SegmentationModel};
 
@@ -229,11 +226,9 @@ fn headcut_in_bars(content: Rect, cut_y: u32, mask_w: u32) -> (Rect, bool) {
 /// return the cut y in `working` coordinates — `None` when there is no mask box, no face, or
 /// the detected cut lands at the top/bottom of the section (which `yxunomei` already refuses).
 ///
-/// Section geometry per the plan: height = top third of the segmask (in model-input coords), side =
-/// `max(top-third-height, segmask-width + margin)` with the trim-margin convention
-/// (`max(TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE * segmask_width)`). The side is clamped to the
-/// model-input bounds, so a mask that reaches the model-input edges yields a smaller section
-/// (SCRFD doesn't require a strict square).
+/// Section geometry (model-input coords): see docs/work-state/2026-10-28-headcuts.md. The side is
+/// clamped to the model-input bounds, so a mask that reaches them yields a smaller section (SCRFD
+/// doesn't require a strict square).
 fn plan_headcut(prep: &Prepared, mask: &Mask) -> Option<u32> {
     let bbox = mask_bounds(mask)?;
     let crop = prep.crop;
@@ -419,15 +414,11 @@ fn trace_stage_90(
     }
 }
 
-/// Check the classifier can actually run, before any image is touched.
-///
-/// The weights are embedded now, so the only file this can fail to find is `onnxruntime.dll`.
-/// That, or a session that will not build, is an environment fault rather than an image outcome:
-/// it should stop the run loudly rather than quietly sending every image down the no-verdict
-/// route. R3 is for images the classifier looked at and could not judge — not for a broken build.
-///
-/// Callers run this once at startup and abort on `Err`. It doubles as the point where the ~180MB
-/// session is paid for, off the batch's critical path.
+/// Check the classifier can actually run, before any image is touched. Callers run this once at
+/// startup and abort on `Err`: a runtime that cannot be found or a session that will not build is an
+/// environment fault, so it stops the run loudly instead of sending every image down R3 (which is for
+/// images the classifier looked at and could not judge). It also pays for the ~180MB session off the
+/// batch's critical path. See docs/architecture/04-known-gaps.md.
 pub fn preflight() -> Result<(), String> {
     model()?;
     // Headcut session is built here too, for the same reason BiRefNet is: a corrupt or missing

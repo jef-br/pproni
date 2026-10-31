@@ -1,21 +1,9 @@
 //! Routing: the shot classifier's last step. It reads the verdict, picks one of three routes, and sends
 //! the image to it. Every decision about *which* route and *which plan* is made here; the routes in
-//! `processor::routes` only change the picture.
-//!
-//! | Route | Verdict | Strategy |
-//! |---|---|---|
-//! | R1 [`Route::CenterAndStretch`] | a usable mask with room to grow | square around the subject, bled edges pinned, background stretched to fill |
-//! | R2 [`Route::CropSquare`] | no usable mask, or no room to grow | take the largest square already in the frame |
-//! | R3 [`Route::Fallback`] | no verdict, or no square can be planned | fit the whole image into a square canvas |
-//!
-//! **The bleed table lives inside R1.** `docs/pproni-spec.md` §5 lists five behaviours for a subject
-//! that reaches an edge. Four of them are one rule seen from four angles: a bled edge is blocked,
-//! an axis with a free side takes the margin, and the slack goes to the free sides. R1 applies that
-//! rule, so those four never reach [`decide`] as a routing choice at all.
-//!
-//! **What does reach it is whether framing is possible.** R2 is the answer to "there is nothing here
-//! to frame around, or no room to do it in". R3 is "we cannot say where the subject is" or "no square
-//! respects the bled edges": nothing is cropped and nothing is guessed.
+//! `processor::routes` only change the picture. Which verdict takes R1 [`Route::CenterAndStretch`],
+//! R2 [`Route::CropSquare`] or R3 [`Route::Fallback`], and why the bleed cases stay inside R1 and
+//! never reach [`decide`]: See docs/specs/05-routing.md §5.1. R3's current reach and what does
+//! reach [`decide`]: See docs/architecture/modules/core-shot-classifier-route.md.
 //!
 //! The route a [`Decision`] names is the route that runs: [`send`] does exactly what it says and no
 //! route hands the image on to another one. The only check left inside a route is R1's seam-carve
@@ -31,14 +19,12 @@ use image::RgbImage;
 
 /// What the classifier produced for one image: the edge verdict, and the mask it was read from.
 ///
-/// The two travel together because they are produced together — there is no verdict without a
-/// mask — so routes never have to handle "verdict but no mask". Absence of the whole thing is the
-/// no-verdict case, and that is R3's business.
+/// The two travel together — there is no verdict without a mask — so routes never handle "verdict
+/// but no mask". Absence of the whole thing is the no-verdict case, R3's business.
 ///
-/// **Resolutions.** `mask` is aligned with [`Prepared::working`] (longest side ≤ `WORKING_SIZE`),
-/// while routes compose their output from [`Prepared::original`]. Anything derived from the mask
-/// has to cross that gap; [`Shot::subject_bbox_in`] is the crossing, so routes do not each
-/// rediscover the scale factor.
+/// **Resolutions.** `mask` is aligned with [`Prepared::working`] (longest side ≤ `WORKING_SIZE`);
+/// routes compose from [`Prepared::original`]. [`Shot::subject_bbox_in`] is the crossing, so
+/// routes do not each rediscover the scale factor.
 #[derive(Clone, Copy)]
 pub struct Shot<'a> {
     pub class: &'a ShotClassification,
@@ -155,11 +141,10 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
             Some("R1: the mask is empty, so there is no subject to centre on: using R3 framing".into()),
         );
     };
-    // A textured scene with flat letterbox/pillarbox bars must be re-framed, not stretched: R1's
-    // stretch invents a smeared band across a textured overhang (measured on 268/46). The
-    // preprocessor's detector (`prep.letterbox`) fires only on genuine bars-plus-textured-interior —
-    // a freestanding product on a plain backdrop has flat edges on both axes, so it never fires and
-    // `EIX0000` cannot flip. Runs after the subject guard so the mask gives the real subject box.
+    // A textured scene with flat letterbox/pillarbox bars is re-framed, not stretched: R1's stretch
+    // smears a band across a textured overhang (268/46). `prep.letterbox` fires only on bars plus a
+    // textured interior, never on a product on a plain backdrop (flat on both axes), so `EIX0000`
+    // cannot flip. Runs after the subject guard so the mask gives the real subject box.
     if let Some(keep) = prep.letterbox {
         let job = R1Job::Reframe { keep, subject: subject_into(subject_box, keep) };
         return decided(
@@ -282,13 +267,10 @@ mod tests {
 
     #[test]
     fn every_edge_combination_routes() {
-        // All 16 subsets of the four edges, for a square subject. Three things can happen:
-        //  * R2: left+right bled and nothing else (the subject spans the width and is taller than
-        //    it), or all four edges (nothing to grow from).
-        //  * R3: an axis bled at both ends and the other axis wanting a bigger square. There is no
-        //    legal place for the slack, so no square can be planned. For a square subject that is
-        //    every subset with top+bottom or left+right, bar the two R2 cases above: 30, 43 and 44.
-        //  * R1: everything else.
+        // All 16 edge subsets, square subject. R2: left+right only (the subject spans the width and
+        // is taller), or all four (nothing to grow from). R3: any other subset with top+bottom or
+        // left+right — the other axis wants a bigger square and the slack has no legal place, so no
+        // square can be planned (30, 43, 44). R1: everything else.
         for bits in 0u8..16 {
             let touches: Vec<Edge> = Edge::ALL
                 .iter()

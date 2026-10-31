@@ -1,0 +1,240 @@
+{
+  "main": {
+    "id": "f8d60b204724c354",
+    "type": "split",
+    "children": [
+      {
+        "id": "7be82ddc2876306c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dde8eff79de844e6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "TOC.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "TOC"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e9d367e1bd5eb5ed",
+    "type": "split",
+    "children": [
+      {
+        "id": "3b68d1946d4be5be",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5520e460c1703ad2",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "ebf6bd0772594372",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "2f9bfd72c86ae663",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "250c5c493e1f887f",
+    "type": "split",
+    "children": [
+      {
+        "id": "b6ad82c4437fa216",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f4ed79f01538b4fb",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "c2b15a701552932d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "d6e80b1b3aa60807",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "e6bc6312966856e3",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "cc15d6245aa65058",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "dde8eff79de844e6",
+  "lastOpenFiles": [
+    "analysis/background-stats/method.md",
+    "analysis/background-stats/TOC.md",
+    "analysis/background-stats/shoes.md",
+    "analysis/background-stats/core-set.md",
+    "diagrams/TOC.md",
+    "diagrams/run-dir-tag-protocol.md",
+    "diagrams/JBA2B.drawio.svg",
+    "specs/09-open-questions.md",
+    "specs/10-build-status.md",
+    "architecture/modules/core-exporter.md.tmp.38360.a57aaa784d96",
+    "architecture/02-debug-tags.md.tmp.38360.9cb67ccd73cd",
+    "architecture/02-debug-tags.md.tmp.38360.aeb668c3a35c",
+    "architecture/modules/core-trace.md",
+    "architecture/modules/core-trace.md.tmp.38360.2a40d8136f90",
+    "architecture/modules/core-preprocessor-maria-antonieta.md.tmp.38360.8f23b2ea3a82",
+    "architecture/modules/core-preprocessor-maria-antonieta.md",
+    "architecture/modules/core-preprocessor-maria-antonieta.md.tmp.38360.6c031d453453",
+    "architecture/modules/core-preprocessor-optimizer.md",
+    "architecture/modules/core-shot-classifier-refine.md",
+    "architecture/modules/core-shot-classifier-refine.md.tmp.38360.758b7a0e320a",
+    "architecture/modules/core-shot-classifier-route.md",
+    "architecture/modules/core-shot-classifier-route.md.tmp.38360.166b003fd1e5",
+    "architecture/modules/core-shot-classifier-sampling.md",
+    "architecture/modules/core-shot-classifier-sampling.md.tmp.38360.3396087f42b5",
+    "architecture/modules/core-shot-classifier-shotcode.md",
+    "architecture/modules/core-shot-classifier-shotcode.md.tmp.38360.69c79644959c",
+    "architecture/modules/core-processor-routes-center-and-stretch.md",
+    "architecture/modules/core-processor-routes.md",
+    "architecture/modules/core-exporter.md",
+    "architecture/modules/build.md",
+    "architecture/modules/core-shot-classifier-birefnet.md",
+    "architecture/modules/tests.md",
+    "architecture/modules/examples.md",
+    "architecture/modules/app.md",
+    "agent-knowledge/code-comments.md",
+    "TOC.md",
+    "analysis/TOC.md",
+    "analysis/background-stats/images/sheet2.jpg",
+    "analysis/background-stats/images/sheet1.jpg",
+    "analysis/background-stats/images/shoes_in/104051882_det2.jpg",
+    "analysis/background-stats/images/shoes_in/104051882_det1.jpg",
+    "analysis/background-stats/images/shoes_in/104051882_det0.jpg",
+    "analysis/background-stats/images/shoes_in/104051881_det1.jpg",
+    "analysis/background-stats/images/shoes_in/104051881_det0.jpg",
+    "analysis/background-stats/images/shoes_in/104051875_det3.jpg",
+    "analysis/background-stats/images/shoes_in/104051873_det3.jpg"
+  ]
+}

@@ -1,16 +1,10 @@
 //! Shot code: the classifier's side of the per-image tag — the `EIX` (edge intersection) bits.
+//! The `BGC`/`FGC` colours are sampled, and the full tag assembled, by `exporter::colors`.
 //!
-//! The `BGC`/`FGC` colours are not here: they are sampled by the exporter
-//! (`exporter::colors`), which also assembles the full tag.
-//!
-//! Partial — a background-type (`BG`) tag is still to come. Until then,
-//! `mask_too_small` reports the case that tag would cover — a mask covering too
-//! little of the frame to be a subject — as *information only*.
-//! `eix` always reports the classifier's real verdict:
-//! a tag must never claim an edge intersection the pipeline didn't actually
-//! route on. Routing (`route::decide`) reads only `touches_edges` and
-//! `mask_too_small`, never this heuristic, so letting it override `eix` would
-//! make the tag lie about what the pipeline did with the image.
+//! `eix` always reports the classifier's real verdict; never let `mask_too_small` override it, or
+//! the tag would claim an edge intersection `route::decide` didn't route on. Partial: a
+//! background-type (`BG`) tag is still to come.
+//! See docs/architecture/modules/core-shot-classifier-shotcode.md.
 
 use super::super::config::{MASK_MIN_COVERAGE, MASK_MIN_LONGEST_SIDE_PX};
 use super::{Edge, Mask};
@@ -25,15 +19,8 @@ pub const NO_VERDICT_EIX: &str = "____";
 /// Two measurements. The share of the frame the mask covers, against [`MASK_MIN_COVERAGE`]; and, only
 /// when that share is too low, the mask's longest side in original pixels, against
 /// [`MASK_MIN_LONGEST_SIDE_PX`]. A tall or thin subject can cover little of the frame and still be
-/// big; it is too small only when both say so. Nothing about *why* it is small — the images this
-/// catches are close-ups where the frame was already all product and the segmenter latched onto the
-/// highest-contrast detail in it, but the route does not need that story to be true, only that
-/// there is no subject here worth framing around.
-///
-/// A further condition — "and no uniform background was found" — was measured and left out. It is
-/// the only thing that would tell a genuinely small product on clean paper, jewellery being the
-/// obvious case, from this. Across the 37-image set the two rules flag exactly the same images, so
-/// it earns nothing yet; add it back against a picture that needs it.
+/// big; it is too small only when both say so.
+/// See docs/architecture/modules/core-shot-classifier-shotcode.md.
 pub fn mask_too_small(working: &RgbImage, original: &RgbImage, mask: &Mask) -> bool {
     let fg = mask.data.iter().filter(|&&v| v > 0).count();
     let total = (working.width() as usize * working.height() as usize).max(1);

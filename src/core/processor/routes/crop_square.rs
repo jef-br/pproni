@@ -1,29 +1,9 @@
-//! R2 — crop a square out of the frame.
+//! R2 — crop a square out of the frame: the largest square the image already contains, centred on
+//! the *frame*, not on the mask. It adds nothing.
 //!
-//! The route for images where framing *around* the subject is the wrong move, either because
-//! there is no usable subject to frame around or because the frame cannot grow to hold one. It
-//! adds nothing: it takes the largest square the image already contains, centred.
-//!
-//! Three verdicts arrive here (see `shot_classifier::route::decide`):
-//!
-//! * **The mask covers too little of the frame to be a subject.** A close-up where the segmenter
-//!   latched onto one high-contrast detail. Cropping to that detail magnifies a speck; padding
-//!   around the whole image adds white to a picture that is already all product. Taking a square
-//!   out of it is the only move that neither invents nor magnifies.
-//! * **Left and right both bled, and nothing else.** The subject spans the full width, so the
-//!   square can be at most that wide — and the subject is taller than that. R1 would have to
-//!   stretch a blocked axis to fit, which would paint background over a subject running off-frame.
-//!   Cropping into the height is the answer instead.
-//! * **All four edges bled.** The subject's box *is* the frame. Nowhere to put a margin, no
-//!   background band anywhere to stretch from.
-//!
-//! Centred on the *frame*, not on the mask. Two of the three cases arrive here precisely because
-//! the mask is not to be trusted, and the third has a subject spanning the whole width — so the
-//! frame is the more reliable anchor in all three.
-//!
-//! `docs/pproni-spec.md` §6's CoG/MSR square is the refinement this leaves room for: anchor the crop
-//! on the saliency-weighted centre rather than the frame's middle. Nothing in the 37-image set
-//! needs it yet.
+//! Three verdicts arrive here from `shot_classifier::route::decide`: the mask covers too little of
+//! the frame, left and right both bled and nothing else, or all four edges bled.
+//! See docs/architecture/modules/core-processor-routes.md.
 
 use super::super::super::preprocessor::Prepared;
 use crate::core::shot_classifier::route::Shot;

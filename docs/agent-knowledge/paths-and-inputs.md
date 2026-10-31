@@ -32,11 +32,11 @@ images. Use this folder to recover the "after" images.
     (see [tag-protocol.md](tag-protocol.md)). The orchestrator asks the user for
     a manual build when one is essential.
 - Debug tags: drop an (empty) file literally named `PPRONI_DEBUG_TAGS` next to
-  the exe before the run — content ignored, presence only (same sidecar
-  convention as the model/dll). It turns on verdict-tagged outputs:
+  the exe before the run — content ignored, presence only. It turns on
+  verdict-tagged outputs:
   - `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].jpg` — the renamed export
     (`=` stands in for `:`). **EIX is read straight from this filename** — so
     checks 5/6 (EIX stays `0000`) are a filename read, not a pixel scan.
   - `<stem>_segmask.jpg` — the segmentation mask, sRGB JPEG at output size.
   - Outputs land in the run's output dir (what `examples/run_dir.rs` writes to).
-    Source of truth: `docs/ARCHITECTURE.md` §Debug tags, `core::exporter`.
+    Source of truth: [architecture: debug tags](../architecture/02-debug-tags.md), `core::exporter`.
