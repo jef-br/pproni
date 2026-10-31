@@ -6,6 +6,7 @@ description: >
   original images through the exe into the PPRONI desktop folders. Manual only.
 disable-model-invocation: true
 argument-hint: "[commit message]"
+allowed-tools: Bash(rtk git add *), Bash(rtk git commit *), Bash(rtk git push *)
 ---
 
 # Job done

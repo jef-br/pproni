@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "TOC.md",
+                "file": "analysis/background-stats/core-set.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "TOC"
+              "title": "core-set"
             }
           }
         ]
@@ -190,8 +190,10 @@
   },
   "active": "dde8eff79de844e6",
   "lastOpenFiles": [
-    "analysis/background-stats/method.md",
     "analysis/background-stats/TOC.md",
+    "analysis/TOC.md",
+    "TOC.md",
+    "analysis/background-stats/method.md",
     "analysis/background-stats/shoes.md",
     "analysis/background-stats/core-set.md",
     "diagrams/TOC.md",
@@ -225,8 +227,6 @@
     "architecture/modules/examples.md",
     "architecture/modules/app.md",
     "agent-knowledge/code-comments.md",
-    "TOC.md",
-    "analysis/TOC.md",
     "analysis/background-stats/images/sheet2.jpg",
     "analysis/background-stats/images/sheet1.jpg",
     "analysis/background-stats/images/shoes_in/104051882_det2.jpg",
