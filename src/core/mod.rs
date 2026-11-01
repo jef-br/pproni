@@ -22,9 +22,9 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
     let mut prep = preprocessor::prepare(input, options)?;
     let mut classified = classify(&prep);
 
-    // Headcut (`maria_antonieta`), post-classify, pre-framing: cut above the philtrum, then a
-    // Peel-style rebuild (original/working/mask cropped, the edge judge re-run, no second BiRefNet
-    // pass). See docs/work-state/2026-10-28-headcuts.md.
+    // Headcut (`maria_antonieta`): cut above the philtrum, then a Peel-style rebuild (original,
+    // working and mask cropped, the edge judge re-run, no second BiRefNet pass).
+    // See docs/work-state/2026-10-28-headcuts.md.
     if options.enable_headcuts {
         if let Some((class, mask)) = classified.as_ref() {
             if headcut_eligible(class) {
@@ -76,10 +76,8 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
         }
     }
 
-    // Framing: read the two trims against the mask the one model run gave, and see whether what trim 1
-    // cut off is padding or a frame (see `framing`). Bars on one axis are centred with padding by R1;
-    // a frame is peeled here, and the edge check runs again on the cropped picture — no second
-    // model run.
+    // Framing: is what trim 1 cut off padding (bars, centred by R1) or a frame (peeled here, the edge
+    // check re-run, no second model run)? See docs/architecture/02-modules-core.md.
     let decision = classified.as_ref().map(|(class, mask)| {
         let (decision, why) = framing::decide(
             prep.working.dimensions(),
@@ -114,9 +112,8 @@ pub fn process_file(input: &Path, output: &Path, backup: &Path, options: &Option
         _ => {}
     }
 
-    // Sample BGC/FGC once per image. R1 holds every pixel it invents to the BGC, so it is needed on
-    // every image that has a verdict. The single sample is shared by the stage-90 log, the
-    // exporter's filename tag, and R1.
+    // BGC/FGC, sampled once on every image with a verdict (R1 holds every pixel it invents to the
+    // BGC), shared by the stage-90 log, the exporter's filename tag and R1.
     let colors = classified.as_ref().map(|(_, mask)| exporter::colors::sample(&prep.working, mask));
     let bgc = colors
         .as_ref()
@@ -167,11 +164,10 @@ fn peel(prep: &Prepared, frame: Rect) -> Prepared {
 
 /// Run the shot classifier, once: the model sees the optimiser's crop (trim 1's), the edge checks the
 /// true-colour image. The mask comes out with the verdict for the exporter's debug tags.
-/// See docs/architecture/02-debug-tags.md.
 ///
-/// `None` means no verdict (model unavailable, or inference failed on this image); not a batch error:
-/// `shot_classifier::route` sends it down R3, which frames it safely without claiming to know where
-/// the subject is. See docs/architecture/01-why-classification-is-optional.md.
+/// `None` means no verdict (model unavailable, or inference failed on this image), not a batch error:
+/// `shot_classifier::route` sends it down R3, which frames it without knowing where the subject is.
+/// See docs/architecture/01-why-classification-is-optional.md.
 fn classify(prep: &Prepared) -> Option<(ShotClassification, Mask)> {
     use crate::core::shot_classifier::{CroppedModel, SegmentationModel};
 
@@ -202,9 +198,8 @@ fn judge(prep: &Prepared, instance: Instance) -> (ShotClassification, Mask) {
     (class, instance.mask)
 }
 
-/// Headcut gate: fire only when at least one of Left and Right is free (not touched). Covers all
-/// four cases: `0000`, `0010` (R touched), `0001` (L touched), etc. — only `01x1` and `0101` /
-/// `1111` style (both L and R touched) are refused, because then there's no "room on a side".
+/// Headcut gate: fire only when at least one of Left and Right is free (not touched). Both touched
+/// (`x1x1`) is refused: there is no room on a side. See docs/work-state/2026-10-28-headcuts.md.
 fn headcut_eligible(class: &ShotClassification) -> bool {
     let left = class.touches_edges.contains(&Edge::Left);
     let right = class.touches_edges.contains(&Edge::Right);
@@ -212,9 +207,9 @@ fn headcut_eligible(class: &ShotClassification) -> bool {
 }
 
 /// Headcut on a bars image: the picture to cut is the content box (`working` coordinates, trim 1's box)
-/// from the philtrum `cut_y` down, so the bars stay out of it. The bool says whether the headcut may be
-/// done: the room below the cut (that box's height) may fall short of the mask's width by at most
-/// `HEADCUT_BARS_MAX_SHORTFALL`. If not, the whole picture is centred on its bars instead.
+/// from the philtrum `cut_y` down, so the bars stay out. The bool is true when the room below the
+/// cut falls short of the mask's width by at most `HEADCUT_BARS_MAX_SHORTFALL`.
+/// See docs/work-state/2026-10-30-headcut-on-bars-image.md.
 fn headcut_in_bars(content: Rect, cut_y: u32, mask_w: u32) -> (Rect, bool) {
     let top = cut_y.max(content.y);
     let room = (content.y + content.h).saturating_sub(top);
@@ -222,9 +217,9 @@ fn headcut_in_bars(content: Rect, cut_y: u32, mask_w: u32) -> (Rect, bool) {
     (Rect { x: content.x, y: top, w: content.w, h: room }, room as f32 >= need)
 }
 
-/// Build the headcut sub-section from `prep.model_input` and the mask, call `yxunomei`, and
+/// Build the headcut sub-section from `prep.model_input` and the mask, call `cut_above_philtrum`, and
 /// return the cut y in `working` coordinates — `None` when there is no mask box, no face, or
-/// the detected cut lands at the top/bottom of the section (which `yxunomei` already refuses).
+/// the detected cut lands at the top/bottom of the section (which `cut_above_philtrum` already refuses).
 ///
 /// Section geometry (model-input coords): see docs/work-state/2026-10-28-headcuts.md. The side is
 /// clamped to the model-input bounds, so a mask that reaches them yields a smaller section (SCRFD
@@ -269,7 +264,7 @@ fn plan_headcut(prep: &Prepared, mask: &Mask) -> Option<u32> {
         image::imageops::crop_imm(&prep.model_input, section_x, section_y, section_w, section_h)
             .to_image();
 
-    let cropped = maria_antonieta::yxunomei(&section)?;
+    let cropped = maria_antonieta::cut_above_philtrum(&section)?;
     let cut_y_section = section_h.saturating_sub(cropped.height());
     if cut_y_section == 0 {
         return None;
@@ -311,8 +306,8 @@ fn model() -> Result<&'static shot_classifier::BiRefNetModel, String> {
     static MODEL: OnceLock<Result<BiRefNetModel, String>> = OnceLock::new();
     MODEL
         .get_or_init(|| {
-            // Weights and runtime are both embedded; the runtime is unpacked to a temp
-            // file first because `ort`'s loader needs a path. See `core::runtime`.
+            // The embedded runtime is unpacked first: `ort`'s loader needs a path.
+            // See docs/architecture/05-single-exe.md.
             BiRefNetModel::init_runtime(runtime::onnxruntime_dylib()?)?;
             BiRefNetModel::load(BiRefNetConfig::default())
         })
@@ -320,11 +315,9 @@ fn model() -> Result<&'static shot_classifier::BiRefNetModel, String> {
         .map_err(|e| e.clone())
 }
 
-/// Stage 90: "what we know" about the image, from which the route is picked. The same drawing
-/// code runs every image; a value that is absent (no bbox, no plan, no overhang) is simply not
-/// drawn, and not written to the log. The header names the route the classifier chose, which is the
-/// route that runs, so the picture and the routing decision are read together, not from two
-/// separate places.
+/// Stage 90: "what we know" about the image, from which the route is picked. An absent value (no
+/// bbox, no plan, no overhang) is neither drawn nor logged; the header names the route that runs.
+/// See docs/architecture/modules/core-trace.md.
 fn trace_stage_90(
     prep: &Prepared,
     shot: Option<&shot_classifier::route::Shot<'_>>,
@@ -415,15 +408,13 @@ fn trace_stage_90(
 }
 
 /// Check the classifier can actually run, before any image is touched. Callers run this once at
-/// startup and abort on `Err`: a runtime that cannot be found or a session that will not build is an
-/// environment fault, so it stops the run loudly instead of sending every image down R3 (which is for
-/// images the classifier looked at and could not judge). It also pays for the ~180MB session off the
-/// batch's critical path. See docs/architecture/04-known-gaps.md.
+/// startup and abort on `Err`: a missing runtime or a session that will not build is an environment
+/// fault, not an R3 image. It also builds the ~180MB session off the batch's critical path.
+/// See docs/architecture/04-known-gaps.md.
 pub fn preflight() -> Result<(), String> {
     model()?;
-    // Headcut session is built here too, for the same reason BiRefNet is: a corrupt or missing
-    // embedded model is an environment fault, which must stop the run loudly rather than fail
-    // every image once headcutting is enabled.
+    // The headcut session too: a corrupt or missing embedded model must stop the run loudly, not
+    // fail every image once headcuts are on. See docs/architecture/05-single-exe.md.
     maria_antonieta::preflight()?;
     Ok(())
 }
@@ -437,8 +428,7 @@ pub fn backend() -> String {
 mod tests {
     use super::*;
 
-    /// Headcut gate fires when at least one of Left and Right is free. The only skip case is
-    /// when both are touched (the subject fills the width edge-to-edge, no room on a side).
+    /// The only skip case: both Left and Right touched (no room on a side).
     #[test]
     fn headcut_gate_fires_when_a_side_is_free() {
         let mk = |edges: Vec<Edge>| ShotClassification {

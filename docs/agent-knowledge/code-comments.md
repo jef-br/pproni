@@ -41,6 +41,15 @@ the comment points there.
   A folder of small files may share one page named after the folder (`src/app/` →
   `docs/architecture/modules/app.md`), with one `##` section per file.
 
+## Writing a new comment
+Applies every time code is added or changed, so the code never needs another trim pass.
+* Write the comment to this rule from the start: contract, units, trap, short why. Nothing else.
+* History and decisions go to `docs/work-state/` (one dated file per decision, listed in its TOC),
+  never into the comment. The comment may point to that file.
+* Design detail that would go over the [size guide](#size-guide) goes to the module's page (create it
+  if missing, see [The pointer](#the-pointer)); the comment keeps one line and the pointer.
+* Before writing detail, look for it in `docs/`. If it is there, point to it.
+
 ## Size guide
 Soft limits; going over is allowed but the check lists it for a second look.
 

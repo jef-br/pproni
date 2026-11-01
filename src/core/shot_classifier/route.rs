@@ -1,13 +1,10 @@
-//! Routing: the shot classifier's last step. It reads the verdict, picks one of three routes, and sends
-//! the image to it. Every decision about *which* route and *which plan* is made here; the routes in
-//! `processor::routes` only change the picture. Which verdict takes R1 [`Route::CenterAndStretch`],
-//! R2 [`Route::CropSquare`] or R3 [`Route::Fallback`], and why the bleed cases stay inside R1 and
-//! never reach [`decide`]: See docs/specs/05-routing.md §5.1. R3's current reach and what does
-//! reach [`decide`]: See docs/architecture/modules/core-shot-classifier-route.md.
-//!
-//! The route a [`Decision`] names is the route that runs: [`send`] does exactly what it says and no
-//! route hands the image on to another one. The only check left inside a route is R1's seam-carve
+//! Routing, the shot classifier's last step: [`decide`] picks the route (R1
+//! [`Route::CenterAndStretch`], R2 [`Route::CropSquare`], R3 [`Route::Fallback`]) and its plan;
+//! [`send`] runs exactly that route, and no route hands the image on. The routes in
+//! `processor::routes` only change the picture; the one check left inside one is R1's seam-carve
 //! quality gate on a textured scene, which needs the pixels it has just made.
+//! Which verdict takes which route: See docs/specs/05-routing.md §5.1. R3's current reach:
+//! See docs/architecture/modules/core-shot-classifier-route.md.
 
 use super::geometry::{Edge, Rect};
 use super::plan::{Pins, SquarePlan};
@@ -17,38 +14,30 @@ use crate::core::preprocessor::{Framing, Prepared};
 use crate::core::processor::routes::{center_and_stretch, crop_square, fallback};
 use image::RgbImage;
 
-/// What the classifier produced for one image: the edge verdict, and the mask it was read from.
+/// What the classifier produced for one image: the edge verdict and the mask it was read from,
+/// always together. No verdict at all is `None`, R3's case.
 ///
-/// The two travel together — there is no verdict without a mask — so routes never handle "verdict
-/// but no mask". Absence of the whole thing is the no-verdict case, R3's business.
-///
-/// **Resolutions.** `mask` is aligned with [`Prepared::working`] (longest side ≤ `WORKING_SIZE`);
-/// routes compose from [`Prepared::original`]. [`Shot::subject_bbox_in`] is the crossing, so
-/// routes do not each rediscover the scale factor.
+/// `mask` is at [`Prepared::working`] resolution (longest side ≤ `WORKING_SIZE`); routes compose
+/// from [`Prepared::original`] and cross with [`Shot::subject_bbox_in`].
 #[derive(Clone, Copy)]
 pub struct Shot<'a> {
     pub class: &'a ShotClassification,
     /// Working-resolution subject mask.
     pub mask: &'a Mask,
-    /// Dominant background colour, when the exporter's colour sampler found one. R1 holds every
-    /// pixel it invents to this. `None` means no single colour dominated the background region.
+    /// Dominant background colour from the exporter's sampler; R1 holds every pixel it invents to
+    /// it. `None`: no single colour dominated the background.
     pub bgc: Option<image::Rgb<u8>>,
 }
 
 impl<'a> Shot<'a> {
-    /// Tight bounding box of the subject, in the *working* image's coordinates.
-    ///
-    /// `None` for an empty mask — a classification can come back with nothing marked, and a route
-    /// asking "where is the subject" deserves an answer that says "nowhere" rather than a box
-    /// covering the whole frame.
+    /// Tight box of the subject in *working* coordinates. `None` for an empty mask ("nowhere"),
+    /// never a box covering the whole frame.
     pub fn subject_bbox(&self) -> Option<Rect> {
         self.mask.bounds()
     }
 
-    /// The same box in `prep.original`'s coordinates.
-    ///
-    /// The preprocessor only ever scales down and keeps the aspect ratio, so one factor per axis
-    /// is the whole of the mapping.
+    /// The same box in `prep.original`'s coordinates: one factor per axis, since the preprocessor
+    /// only scales down and keeps the aspect ratio.
     pub fn subject_bbox_in(&self, prep: &Prepared) -> Option<Rect> {
         let fx = prep.original.width() as f32 / prep.working.width().max(1) as f32;
         let fy = prep.original.height() as f32 / prep.working.height().max(1) as f32;
@@ -77,8 +66,7 @@ pub enum Route {
 }
 
 impl Route {
-    /// The label the stage-90 log shows. It comes from the route that runs, never from a guess made
-    /// before it.
+    /// The stage-90 log label, taken from the route that runs, never from an earlier guess.
     pub fn label(&self) -> &'static str {
         match self {
             Route::CenterAndStretch(_) => "[R1 - CenterAndStretch]",
@@ -100,13 +88,10 @@ pub struct Decision {
     pub note: Option<String>,
 }
 
-/// Pick the route for one image.
-///
-/// R1 needs two things: a mask that describes a subject, and room to put a square around it. Each
-/// of R2's verdicts is one of those two missing. `None` for `shot` means the classifier could not
-/// produce a verdict at all — a failed inference, an unusable model output. That is deliberately
-/// distinct from any verdict it *did* produce, so a model failure degrades one image instead of
-/// being silently processed as a clean shot.
+/// Pick the route for one image. R1 needs a mask that describes a subject and room for a square
+/// around it; each R2 verdict is one of those missing. `shot` is `None` when the classifier gave no
+/// verdict (failed inference, unusable output): R3, kept apart from every real verdict so a model
+/// failure degrades one image instead of passing as a clean shot.
 pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
     let Some(shot) = shot else {
         return Decision { route: Route::Fallback, subject: None, plan: None, note: None };
@@ -116,15 +101,13 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
     let plan = subject.and_then(|s| plan_square(prep, s, &class.touches_edges));
     let decided = |route: Route, note: Option<String>| Decision { route, subject, plan, note };
 
-    // Nothing to frame around: the mask does not describe a subject, so cropping to it would
-    // magnify whichever speck the segmenter latched onto — and the size envelope would then
-    // blow that speck up to fill an 800px square.
+    // Nothing to frame around: cropping to this mask would blow the speck the segmenter latched
+    // onto up to an 800px square. See docs/architecture/modules/core-processor-routes.md.
     if class.mask_too_small {
         return decided(Route::CropSquare, None);
     }
-    // No room to frame in. Left and right both bled and nothing else: the subject spans the
-    // full width, so the square can be at most that wide, and it is taller than that. Growing
-    // the width means painting background over a subject that runs off-frame.
+    // No room to frame in: left+right only caps the square at the frame width, and the subject is
+    // taller. See docs/architecture/modules/core-processor-routes.md.
     let horizontally_boxed_in = class.touches_edges.len() == 2
         && class.touches_edges.contains(&Edge::Left)
         && class.touches_edges.contains(&Edge::Right);
@@ -132,19 +115,17 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
         return decided(Route::CropSquare, None);
     }
 
-    // R1 from here, unless nothing in the picture lets it work.
-    // An empty mask means the classifier marked nothing: there is no subject to centre on, so the
-    // safe framing of R3 is a better answer than a square around an arbitrary point.
+    // R1 from here, unless nothing lets it work. An empty mask has no subject to centre on: R3's
+    // safe framing beats a square around an arbitrary point.
     let Some(subject_box) = subject else {
         return decided(
             Route::Fallback,
             Some("R1: the mask is empty, so there is no subject to centre on: using R3 framing".into()),
         );
     };
-    // A textured scene with flat letterbox/pillarbox bars is re-framed, not stretched: R1's stretch
-    // smears a band across a textured overhang (268/46). `prep.letterbox` fires only on bars plus a
-    // textured interior, never on a product on a plain backdrop (flat on both axes), so `EIX0000`
-    // cannot flip. Runs after the subject guard so the mask gives the real subject box.
+    // Textured scene with flat bars: reframe, not stretch, which smears a band across a textured
+    // overhang (268/46). After the subject guard so the mask gives the real box. When
+    // `prep.letterbox` fires: See docs/architecture/modules/core-preprocessor-optimizer.md.
     if let Some(keep) = prep.letterbox {
         let job = R1Job::Reframe { keep, subject: subject_into(subject_box, keep) };
         return decided(
@@ -152,8 +133,7 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
             Some(format!("R1 → Part C: textured scene, reframing on the trimmed {keep:?} rather than stretching")),
         );
     }
-    // `None` means no square can respect the bled edges — R3 frames the image safely rather than R1
-    // guessing.
+    // `None`: no square respects the bled edges, so R3 frames safely rather than R1 guessing.
     match plan {
         Some(plan) => decided(Route::CenterAndStretch(R1Job::Stretch(plan)), None),
         None => decided(
@@ -168,20 +148,15 @@ pub fn send(prep: &Prepared, shot: Option<Shot<'_>>, route: &Route) -> RgbImage 
     match (route, shot) {
         (Route::CenterAndStretch(job), Some(shot)) => center_and_stretch::apply(prep, shot, *job),
         (Route::CropSquare, Some(shot)) => crop_square::apply(prep, shot),
-        // R3, and nothing else can reach here: `decide` names a non-fallback route only for `Some`,
-        // so a missing shot always lands on the fallback. R1 and R2 therefore take a plain `Shot`
-        // rather than an `Option`, and cannot be handed a state they can't serve.
+        // Only R3 reaches here: `decide` names R1/R2 only for `Some`, so they take a plain `Shot`
+        // and cannot be handed a state they can't serve.
         _ => fallback::apply(prep),
     }
 }
 
-/// Where R1's square goes.
-///
-/// Normally it is planned from the subject: the edges the subject bleeds off are the ones the square
-/// may not move ([`SquarePlan::new`]). When `core::framing` found white bars on one axis
-/// ([`Framing::CentreContent`]) it is cut from the content box instead: as wide as the box's longer
-/// side, no margin, centred on the box — equal padding either side of the shorter axis, aligned on
-/// nothing. Whatever of the square falls outside the picture is filled as always.
+/// Where R1's square goes: planned from the subject ([`SquarePlan::new`], bled edges may not move),
+/// or from the content box when `core::framing` found white bars ([`Framing::CentreContent`]).
+/// See docs/architecture/modules/core-shot-classifier-route.md.
 pub fn plan_square(prep: &Prepared, subject: Rect, touches: &[Edge]) -> Option<SquarePlan> {
     if let Framing::CentreContent(content) = prep.framing {
         let (fx, fy) = (
@@ -200,9 +175,8 @@ pub fn plan_square(prep: &Prepared, subject: Rect, touches: &[Edge]) -> Option<S
     SquarePlan::new(subject, config::R1_MARGIN, Pins::from_edges(touches))
 }
 
-/// Re-express `subject` (original coordinates) relative to the trimmed `keep` sub-rect, clamped to
-/// it. The trimmed bars are background, so the subject normally lies wholly inside `keep`; the
-/// clamp only guards a subject box that grazes a trimmed band.
+/// `subject` (original coordinates) made relative to the trimmed `keep` box, clamped to it. The
+/// bars are background, so the clamp only matters for a subject box grazing a trimmed band.
 pub(crate) fn subject_into(subject: Rect, keep: Rect) -> Rect {
     let x0 = subject.x.max(keep.x);
     let y0 = subject.y.max(keep.y);

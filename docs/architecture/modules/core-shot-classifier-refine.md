@@ -7,6 +7,11 @@ Detail moved out of the `src/core/shot_classifier/refine.rs` comments. Pass 2's 
 [2. Modules: `core::shot_classifier`](../02-modules-shot-classifier.md).
 
 ## The graze test (`graze_ratio`)
+Step 6 of `refine_edge`: reaching the border is not sufficient. A hem curving down to kiss the
+bottom edge reaches it as surely as a subject the frame cuts in half, and only the second gives R2
+an edge to anchor a crop on. So a contact must be a real bleed-off, not a graze, to count as
+touching.
+
 A subject the frame truncates holds the same coverage at every depth — its silhouette meets the
 border head-on and simply carries on past it. One that grazes runs *along* the border and curves
 away, so coverage grows the deeper you look. Comparing mean coverage in a narrow band against a

@@ -1,9 +1,6 @@
-//! Edge-relative coordinate handling. Every per-edge algorithm (border-band
-//! scanning, background-color sampling, the trimap ring) is written once,
-//! for the top edge, against [`Grid`]; [`EdgeView`] presents the other three
-//! edges as the top one by transposing/flipping coordinates. Nothing
-//! edge-specific lives outside this file.
-//! See docs/architecture/02-modules-shot-classifier.md.
+//! Edge-relative coordinates: per-edge algorithms are written once, for the top edge, against
+//! [`Grid`]; [`EdgeView`] transposes/flips the other three edges into the top one. Keep anything
+//! edge-specific in this file. See docs/architecture/modules/core-shot-classifier-geometry.md.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Edge {
@@ -17,10 +14,7 @@ impl Edge {
     pub const ALL: [Edge; 4] = [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left];
 }
 
-/// A read-only 2D grid of values addressed as `(x, y)`, `(0, 0)` at the
-/// top-left. Implemented for [`super::segmentation::Mask`] directly and
-/// for `image::RgbImage` via a thin adapter, so both can be run through
-/// the same edge-relative algorithms.
+/// A read-only 2D grid addressed as `(x, y)`, `(0, 0)` at the top left.
 pub trait Grid {
     type Item: Copy;
     fn width(&self) -> u32;
@@ -43,8 +37,7 @@ impl<'a, G: Grid> EdgeView<'a, G> {
         self.edge
     }
 
-    /// Maps a canonical (top-edge-relative) coordinate back to the
-    /// underlying grid's own coordinate space.
+    /// Maps a top-edge-relative coordinate back to the inner grid's own coordinates.
     pub fn to_original(&self, cx: u32, cy: u32) -> (u32, u32) {
         let (w, h) = (self.inner.width(), self.inner.height());
         match self.edge {
@@ -112,8 +105,7 @@ impl Rect {
         }
     }
 
-    /// Rescales from one coordinate space to another (e.g. working
-    /// resolution to full original resolution) by independent x/y factors.
+    /// Rescales by independent x/y factors (e.g. working to original resolution).
     pub fn scaled(&self, fx: f32, fy: f32) -> Rect {
         Rect {
             x: (self.x as f32 * fx).floor() as u32,
@@ -124,12 +116,8 @@ impl Rect {
     }
 }
 
-/// Prefix sums over a boolean grid, so "is any cell set inside this
-/// rectangle?" costs four lookups instead of scanning the rectangle.
-///
-/// Exists for [`super::sampling`]'s per-pixel mask window. Building the
-/// table is one pass over the rows the strip can actually reach; every
-/// query after it is O(1). See
+/// Prefix sums over a boolean grid: "is any cell set in this rectangle?" in four lookups. Built
+/// for [`super::sampling`]'s mask window. See
 /// docs/architecture/modules/core-shot-classifier-sampling.md.
 pub(crate) struct BoolSummedArea {
     width: u32,
@@ -141,9 +129,8 @@ pub(crate) struct BoolSummedArea {
 }
 
 impl BoolSummedArea {
-    /// Builds the table over the top `rows` rows of `grid` — the caller
-    /// knows how deep its queries can reach, and rows below that are
-    /// never read.
+    /// Builds the table over the top `rows` rows of `grid` only: the caller knows how deep its
+    /// queries reach.
     pub(crate) fn new<G: Grid<Item = bool>>(grid: &G, rows: u32) -> Self {
         let width = grid.width();
         let height = rows.min(grid.height());
@@ -159,11 +146,8 @@ impl BoolSummedArea {
         BoolSummedArea { width, height, sums }
     }
 
-    /// Is any cell set inside the inclusive rectangle `[x0, x1] x [y0, y1]`?
-    ///
-    /// The rectangle is clamped to the table, and one that falls entirely
-    /// outside it reads as empty — same answer the scan it replaces gave
-    /// for an empty coordinate range.
+    /// Is any cell set inside the inclusive rectangle `[x0, x1] x [y0, y1]`? Clamped to the table;
+    /// one wholly outside reads as empty, as the reference window scan does.
     pub(crate) fn any_in(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> bool {
         if self.width == 0 || self.height == 0 {
             return false;

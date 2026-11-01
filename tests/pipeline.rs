@@ -1,8 +1,6 @@
-//! Integration tests for the imaging core.
-//!
-//! The export invariant, independent of routing: every JPEG Pproni writes carries an embedded sRGB
-//! ICC profile and decodes back at the size it was written. History: see
-//! docs/architecture/modules/tests.md.
+//! Integration tests for the imaging core. The export invariant, independent of routing: every
+//! JPEG Pproni writes embeds an sRGB ICC profile and decodes back at the size it was written.
+//! What else it covers: see docs/architecture/modules/tests.md.
 
 use pproni::core::config::WORKING_SIZE;
 use pproni::core::exporter::save;

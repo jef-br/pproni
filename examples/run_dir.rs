@@ -1,15 +1,11 @@
-//! Batch-run the shot classifier (BiRefNet backend) over a folder of images. For every input it
-//! writes into `<output_dir>` the input renamed with its partial shot code
-//! (`<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].<ext>`), the segmask and, if an edge was gated,
-//! the refine canvas; plus `zzz_results.json`. See docs/architecture/modules/examples.md.
+//! Batch-run the shot classifier (BiRefNet backend) over a folder of images or one image, writing
+//! into `<output_dir>` each input renamed with its partial shot code, its segmask, the refine
+//! canvas if an edge was gated, and a results JSON. See docs/architecture/modules/examples.md.
 //!
-//! Usage:
-//!   cargo run --release --example run_dir -- <input> [output_dir]
-//!   <input> is a folder of images or a single image file.
+//! Usage: cargo run --release --example run_dir -- <input> [output_dir]
 //!
-//! Model: the weights embedded in the exe by default. Set BIREFNET_ONNX to a path to run a different
-//! export instead — that is what this harness is for. ORT_DYLIB_PATH overrides the ONNX Runtime
-//! library (default: ./onnxruntime.dll).
+//! BIREFNET_ONNX runs that export instead of the embedded weights (what this harness is for);
+//! ORT_DYLIB_PATH overrides the ONNX Runtime library (default: ./onnxruntime.dll).
 
 use pproni::core::shot_classifier::geometry::Rect;
 use pproni::core::shot_classifier::refine::{RefineParams, RefinementInput};
@@ -36,8 +32,7 @@ fn main() {
 
     let model_path = std::env::var("BIREFNET_ONNX").ok();
     let ort_lib = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "onnxruntime.dll".into());
-    // Absolute path, or the OS search finds System32's older onnxruntime.dll first (version-mismatch
-    // panic); `join` leaves an absolute `ORT_DYLIB_PATH` as is.
+    // Absolute path, or the OS search finds System32's older onnxruntime.dll first.
     // See docs/architecture/modules/examples.md.
     let ort_lib = std::env::current_dir()
         .map(|dir| dir.join(&ort_lib))
@@ -65,8 +60,7 @@ fn main() {
     }
 
     std::fs::create_dir_all(&output_dir).expect("could not create output dir");
-    // Only wipe OUTPUT for a full-folder run; a single-file run just
-    // overwrites that image's own outputs.
+    // Wipe OUTPUT only on a folder run; a single-file run overwrites just its own outputs.
     if meta.is_dir() {
         let cleared = clear_output_files(&input, &output_dir);
         if cleared > 0 {
@@ -96,8 +90,8 @@ fn main() {
         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("img");
 
-        // Debug trace (PPRONI_DEBUG_TAGS marker file next to run_dir.exe): every stage image this
-        // run produces, as `<stem>  -  NN.jpg`, written next to run_dir's output files.
+        // Debug trace, with a `PPRONI_DEBUG_TAGS` marker next to run_dir.exe: stage images go next
+        // to the outputs. See docs/architecture/02-debug-tags.md.
         let trace_target = output_dir.join(&file_name);
         let _trace = pproni::core::trace::begin(&trace_target);
 
@@ -158,9 +152,7 @@ fn main() {
         }
         let _ = m.save(output_dir.join(format!("{stem}{SEGMASK_SUFFIX}")));
 
-        // step 2: one canvas the size of the segmask, white except for
-        // the refined region of each gated edge, pasted back where it
-        // sits in the frame (top region up top, bottom down low, etc.).
+        // step 2: white segmask-sized canvas, each gated edge's refined region pasted in place.
         let regions: Vec<Rect> = result
             .refinements
             .iter()
@@ -200,8 +192,7 @@ fn main() {
     }
 
     let json = format!("[\n{}\n]\n", json_rows.join(",\n"));
-    // Folder run -> the aggregate `zzz_results.json`; single-file run ->
-    // `<stem>_results.json`, so it never clobbers a folder run's report.
+    // A single-file run writes `<stem>_results.json`, never clobbering `zzz_results.json`.
     let json_name = if meta.is_dir() {
         "zzz_results.json".to_string()
     } else {
@@ -225,9 +216,8 @@ fn is_image(p: &Path) -> bool {
     )
 }
 
-/// Deletes regular files sitting directly in `output_dir` so a re-run
-/// doesn't leave stale crops from a previous verdict. Subdirectories are
-/// left untouched, and it refuses if output and input are the same folder.
+/// Delete the regular files directly in `output_dir` (stale crops of a previous verdict) and return
+/// the count. Subfolders stay; does nothing if output and input are the same folder.
 fn clear_output_files(input_dir: &Path, output_dir: &Path) -> usize {
     let same = std::fs::canonicalize(input_dir).ok() == std::fs::canonicalize(output_dir).ok();
     if same {

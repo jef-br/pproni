@@ -2,14 +2,9 @@
 //! stage that caused it. Inert unless the `PPRONI_DEBUG_TAGS` marker sits next to the exe (one
 //! cached check per process). See docs/architecture/02-debug-tags.md.
 //!
-//! Per image, into the output image's folder: `<stem>  -  <NN>.jpg`, one per stage, `NN` fixed per
-//! stage in [`stage`] (a skipped stage leaves a gap, nothing is renumbered); and `<stem>  -  log.txt`,
-//! the stages written, in order, plus the numbers behind each decision (mask coverage, which edges
-//! the gate flagged, the graze ratio, the route and why).
-//!
 //! To add a stage: take the next free number in [`stage`] and call [`image`] where the picture
-//! exists, with a closure that builds it. The closure runs only while tracing, so an overlay costs
-//! nothing in a normal run.
+//! exists, with a closure that builds it; it runs only while tracing. The files written:
+//! see docs/architecture/modules/core-trace.md.
 
 use super::preprocessor::optimizer::EdgeKind;
 use super::shot_classifier::geometry::Rect;
@@ -21,11 +16,11 @@ use std::sync::OnceLock;
 /// Stage numbers. A group takes a block of ten so a stage can be added without renumbering.
 /// What each picture shows, colour by colour: see docs/architecture/modules/core-trace.md.
 pub mod stage {
-    pub const ORIGINAL: u8 = 1; // Preprocessing: the original after EXIF, alpha, flatten, colour profile
-    pub const LETTERBOX: u8 = 2;// Preprocessing: the flat-bar check on the original
-    pub const TRIM: u8 = 3;     // Preprocessing: the two trims on the colour-balanced working copy
-    pub const PRIMARY: u8 = 10; // Shot classifier: 10 model input, then +1, +2 and +5
-    pub const R1_PLAN: u8 = 90; // Plan view on the original
+    pub const ORIGINAL: u8 = 1;
+    pub const LETTERBOX: u8 = 2;
+    pub const TRIM: u8 = 3;
+    pub const PRIMARY: u8 = 10;
+    pub const R1_PLAN: u8 = 90;
 
 }
 
@@ -81,9 +76,8 @@ pub fn debug_enabled() -> bool {
     })
 }
 
-/// Start tracing one image. Inert unless the `PPRONI_DEBUG_TAGS` marker is next to the exe. Stage
-/// images and `log.txt` are written into `output.parent()`, using `output`'s file stem — the same
-/// folder and stem the exporter uses for `<stem>_segmask.jpg`.
+/// Start tracing one image (inert unless [`debug_enabled`]). Stage images and `log.txt` go into
+/// `output.parent()` under `output`'s file stem, as the exporter's `<stem>_segmask.jpg` does.
 pub fn begin(output: &Path) -> Session {
     if !debug_enabled() {
         return Session { owns: false };
@@ -160,9 +154,7 @@ fn group(index: u8) -> String {
 }
 
 // ---- picture builders -------------------------------------------------------------------------
-//
-// Plain helpers that turn the pipeline's own data into something viewable. They are only ever
-// called from inside the closures above, so they cost nothing in a normal run.
+// Turn the pipeline's own data into something viewable; only called inside the closures above.
 
 /// A mask as a black-and-white picture.
 pub fn mask_image(mask: &Mask) -> RgbImage {
@@ -245,10 +237,9 @@ pub fn outline(img: &mut RgbImage, x: i64, y: i64, w: u32, h: u32, colour: [u8; 
     }
 }
 
-/// The letterbox check on the original. A bar along each edge, `[T, R, B, L]`: green = plain
-/// backdrop, orange = flat in another colour, magenta = varied. `bars` (the part the check would
-/// keep) leaves the trimmed bars dimmed. `proxy` is tinted cyan and outlined: texture is measured on
-/// everything bright outside it.
+/// The letterbox check on the original: a bar along each edge, `kinds` in `[T, R, B, L]` order.
+/// `bars` (the part the check would keep) dims the rest; `proxy` is tinted cyan and outlined.
+/// Colours: see docs/architecture/modules/core-trace.md.
 pub fn letterbox_view(original: &RgbImage, kinds: [EdgeKind; 4], bars: Option<Rect>, proxy: Option<Rect>) -> RgbImage {
     let mut img = original.clone();
     let (w, h) = (img.width(), img.height());
@@ -337,12 +328,9 @@ pub fn verdict_view(working: &RgbImage, mask: &Mask, near: &[Edge], touching: &[
     img
 }
 
-/// Debug view on the original: subject box (cyan) and R1's planned square (yellow), on a grey
-/// canvas padded wherever the square reaches past the picture — the grey is exactly what R1 has
-/// to invent by stretching. Both are optional: a missing subject skips the cyan outline, a
-/// missing plan skips the yellow square and the grey padding. Semi-transparent red/orange bars
-/// along each gated edge sit under the outlines (red = subject touches, orange = gate flagged
-/// but refinement cleared).
+/// Stage 90 on the original: subject box and R1's planned square on a grey canvas padded wherever
+/// the square reaches past the picture, gated-edge bars under the outlines. Either box may be
+/// missing. Colours: see docs/architecture/modules/core-trace.md.
 pub fn plan_view(
     original: &RgbImage,
     subject: Option<Rect>,
@@ -381,8 +369,7 @@ pub fn plan_view(
 }
 
 /// Blends a bar colour at 50% alpha along each gated edge of the original-image region on
-/// `canvas` (the area at `(pad_x, pad_y) .. +(w, h)`). Red for an edge the subject touches,
-/// orange for one the gate flagged but refinement cleared.
+/// `canvas` (the area at `(pad_x, pad_y) .. +(w, h)`): red = touches, orange = gated but cleared.
 fn overlay_edge_bars(
     canvas: &mut RgbImage,
     w: u32,

@@ -1,15 +1,11 @@
-//! Output size envelope: scale so the longest side lands in [MIN_SIZE, MAX_SIZE]. The exporter
-//! starts here, so this is the one place the envelope is enforced.
-//! See docs/architecture/modules/core-exporter.md.
-//!
-//! The scale is always uniform (a square stays square) and works on the longest side, so a route
-//! that ever hands over a non-square image still lands inside the envelope.
+//! Output size envelope, [MIN_SIZE, MAX_SIZE] on the longest side. The exporter starts here, so
+//! this is the one place it is enforced. See docs/architecture/modules/core-exporter.md.
 
 use super::super::config::{MAX_SIZE, MIN_SIZE};
 use image::{imageops, RgbImage};
 
-/// Scale `img` uniformly so its longest side lands inside the envelope. An image already inside it
-/// is returned unchanged — no resample, no generation loss.
+/// Scale `img` uniformly (a square stays square) so its longest side lands inside the envelope.
+/// One already inside is returned as is: no generation loss.
 pub fn to_envelope(img: &RgbImage) -> RgbImage {
     let (w, h) = (img.width(), img.height());
     let longest = w.max(h);

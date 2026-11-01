@@ -1,10 +1,9 @@
 //! Throttled, in-place batch progress bar with a fixed footer under it.
 //!
-//! `batch::run` fans work across cores with rayon and calls [`Progress::tick`] once per finished
-//! file from whatever worker thread finished it. Redraws are throttled to ~15 Hz through a
-//! non-blocking `try_lock`: a worker that can't take the gate just bumps the counter and returns,
-//! so the bar never sits on the batch's critical path. The bar disables itself when stdout is not
-//! a terminal, which keeps it out of the piped `<exe> <in> <out>` dev path.
+//! `batch::run` calls [`Progress::tick`] once per finished file, from any rayon worker. Redraws are
+//! throttled to ~15 Hz by a non-blocking `try_lock`: a worker that misses the gate only bumps the
+//! counter, so the bar is never on the batch's critical path. Off when stdout is not a terminal
+//! (the piped `<exe> <in> <out>` dev path).
 //!
 //! The footer is drawn once, with the first frame; later frames rewrite only the bar line, so
 //! nothing else may write to stdout while the batch runs. Each frame goes out in one `write_all`,
@@ -90,11 +89,9 @@ impl Progress {
         self.paint(&mut out, done, true);
     }
 
-    /// Build the whole frame in memory and hand it to the terminal in one write.
-    ///
-    /// The opening frame (`rewind` false) prints the bar and the footer under it. Every frame after
-    /// that touches the bar line alone: up to it, rewrite it, back down to where the cursor was.
-    /// The footer is never erased, so the screen never holds a blank where it used to be.
+    /// Build the whole frame in memory and write it once. The opening frame (`rewind` false) prints
+    /// bar and footer; later ones go up to the bar line, rewrite it, and come back down, never
+    /// erasing the footer. See docs/architecture/modules/app.md.
     fn paint<W: Write>(&self, out: &mut W, done: usize, rewind: bool) {
         let bar = format!(
             "{}{}{}",
@@ -119,9 +116,10 @@ impl Progress {
         let _ = out.flush();
     }
 
-    /// `  08m25s remaining`, sitting to the right of the bar. Empty on the first frame (no
-    /// estimate yet) and on the closing one (nothing left to wait for). The percentage is not
-    /// here — it lives inside the bar.
+    /// `  08m25s remaining`, sitting to the right of the bar.
+    /// Empty on the first frame (no estimate yet)
+    /// Empty on the closing frame (nothing left to wait for)
+    /// The percentage is not here, it lives inside the bar.
     fn label(&self, done: usize) -> String {
         if done == 0 || done >= self.total {
             return String::new();
@@ -136,9 +134,7 @@ impl Progress {
         )
     }
 
-    /// The bar: `WIDTH` teal cells, solid up to `done` and hatched after it, with the percentage
-    /// drawn *over* the cells it needs. Pinning the label's start at `WIDTH - len` keeps the bar
-    /// exactly `WIDTH` wide at 100%, where it ends up sitting on top of the filled cells.
+    /// The live bar: [`bar_line`] in teal, solid up to `done`.
     fn bar(&self, done: usize) -> String {
         bar_line(TEAL, done as f64 / self.total.max(1) as f64)
     }
@@ -150,7 +146,9 @@ pub fn dimmed_empty_bar() -> String {
     format!("{}{}", " ".repeat(theme::INDENT), bar_line(theme::DARK, 0.0))
 }
 
-/// `WIDTH` cells in `colour`, solid up to `frac`, with the percentage drawn over them.
+/// `WIDTH` cells in `colour`, solid up to `frac` and hatched after, with the percentage drawn
+/// *over* the cells it needs. Its start is pinned at `WIDTH - len`, so at 100% it sits on the
+/// filled cells and the bar stays exactly `WIDTH` wide.
 fn bar_line(colour: &str, frac: f64) -> String {
     let filled = ((frac * WIDTH as f64).round() as usize).min(WIDTH);
     let cells: Vec<char> = (0..WIDTH)
@@ -220,9 +218,8 @@ mod tests {
         assert_eq!(frame.lines().count(), 4);
     }
 
-    /// A repaint rewrites the bar line and nothing else. A newline in this frame would walk the
-    /// footer down the screen a row per frame; reprinting the footer would blank it fifteen times a
-    /// second, which is what the flicker was.
+    /// A repaint rewrites the bar line only: a newline would walk the footer down a row per frame,
+    /// and reprinting the footer would blank it 15 times a second (the flicker).
     #[test]
     fn repaint_touches_the_bar_line_only() {
         let footer = vec![String::new(), "RULE".into(), "CALLOUT".into()];
@@ -235,7 +232,7 @@ mod tests {
             !frame.contains("RULE") && !frame.contains("CALLOUT"),
             "{frame:?}"
         );
-        // Four footer lines above the cursor plus the bar itself: up four, and back down four.
+        // Three footer lines plus the bar: up four, and back down four.
         assert!(frame.starts_with("\x1b[4A\r"), "{frame:?}");
         assert!(frame.ends_with("\x1b[4B\r"), "{frame:?}");
     }
@@ -243,7 +240,7 @@ mod tests {
     /// The frame under the bar only stays put if the bar never changes width — including at 100%,
     /// where the percentage has to be drawn over the filled cells rather than after them.
     #[test]
-    fn bar_is_always_forty_cells() {
+    fn bar_matches_width_parameter() {
         for total in [1usize, 7, 37, 40, 100, 999] {
             for done in 0..=total {
                 let bar = silent(total).bar(done);

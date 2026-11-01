@@ -3,13 +3,9 @@
 //! **load** — decode, apply EXIF orientation, read the embedded ICC profile.
 //!
 //! **preprocess (homogenize)** — flatten any alpha onto white, colour-manage into sRGB, and produce
-//! the working-resolution copy. Everything downstream sees one shape: opaque sRGB pixels at two
-//! resolutions, no alpha channel and no unknown colour space. A third image, `model_input`, is the
-//! working copy run through the optimiser (colour balance, then a crop around the product) — it
-//! exists only to be shown to the model, and `crop` says where it was cut from `working`.
-//!
-//! Both resolutions are kept because the classifier's pass-2 refinement needs full-resolution
-//! pixels. See docs/architecture/01-why-two-resolutions.md.
+//! the working-resolution copy, plus `model_input`, the optimised copy only the model sees.
+//! Downstream sees opaque sRGB pixels only: no alpha channel, no unknown colour space. Why two
+//! resolutions, and the optimiser: see docs/architecture/01-why-two-resolutions.md.
 
 pub mod maria_antonieta;
 pub mod optimizer;
@@ -110,9 +106,7 @@ pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, Strin
     let mut original = flatten_onto_white(&decoded.image);
     trace::image(trace::stage::ORIGINAL, "Preprocess ingress: Decode, EXIF rotation, flatten alpha to white", || original.clone());
 
-    // A source tagged with a non-sRGB RGB profile gets colour-managed into sRGB here, before any
-    // downstream pixel math runs on it. An untagged image, or one already tagged sRGB, is left
-    // untouched.
+    // Into sRGB before any pixel math. See docs/architecture/modules/core-preprocessor.md.
     if let Some(icc) = decoded.icc_profile.as_deref() {
         if is_srgb_profile(icc) {
             trace::note(|| "ICC profile is already sRGB: colours left as-is".into());
@@ -124,9 +118,8 @@ pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, Strin
         trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
 
-    // Plan Part C: flat letterbox/pillarbox bars on a textured scene (mountain/268) are found here,
-    // on the full-resolution image, before the mask exists. `original` itself is left whole; R1
-    // reads `letterbox` and re-frames the trimmed part (`extend::reframe_to_square`).
+    // Plan Part C: bars are found on full resolution, before the mask exists; `original` stays
+    // whole. See docs/architecture/modules/core-preprocessor-optimizer.md.
     let report = optimizer::detect_letterbox(&original);
     let letterbox = report.keep;
     if trace::active() {
@@ -161,8 +154,7 @@ pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, Strin
 
     let working = downscale_to_working(&original);
 
-    // Colour-balance a copy of the working image and crop it to the product, so the segmentation
-    // model finds the subject more reliably. `working` and `original` stay true-colour: the exporter
+    // Only the model sees the balanced crop. `working` and `original` stay true colour: the exporter
     // composes from `original` and samples BGC/FGC from `working`.
     let both = optimizer::optimize_both(&working)?;
     let (model_input, crop) = (both.model_input, both.crop);
@@ -213,9 +205,8 @@ fn downscale_to_working(original: &RgbImage) -> RgbImage {
     RgbImage::from_raw(target_w, target_h, target.into_vec()).expect("the target buffer holds target_w x target_h pixels")
 }
 
-// Whether `icc` is an RGB profile that names itself sRGB. Converting such an image into sRGB changes
-// no pixel, and at full resolution it is the slowest step before the model, so it is skipped. Decided
-// by the name in the profile's `desc` tag, which comes in two encodings: ASCII, or UTF-16 big-endian.
+// Whether `icc` is an RGB profile whose `desc` tag names it sRGB (ASCII or UTF-16 big-endian); such
+// an image skips the conversion. See docs/architecture/modules/core-preprocessor.md.
 fn is_srgb_profile(icc: &[u8]) -> bool {
     let Ok(profile) = Profile::open(icc) else {
         return false;
@@ -233,9 +224,8 @@ fn is_srgb_profile(icc: &[u8]) -> bool {
     ascii || utf16
 }
 
-// Colour-manage `rgb` from its embedded ICC profile into sRGB via tintbox (a pure-Rust,
-// bit-identical-to-lcms2 CMM). Anything that doesn't parse as an RGB profile, or that tintbox
-// can't build a transform for, leaves `rgb` untouched — same fallback as no profile at all.
+// Colour-manage `rgb` from its embedded ICC profile into sRGB via tintbox. Any failure leaves `rgb`
+// untouched, as with no profile. See docs/architecture/modules/core-preprocessor.md.
 fn convert_to_srgb(rgb: RgbImage, icc: &[u8]) -> RgbImage {
     let (w, h) = (rgb.width(), rgb.height());
     let Ok(source) = Profile::open(icc) else {

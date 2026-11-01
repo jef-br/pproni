@@ -1,10 +1,5 @@
-//! The graphics adapters in this machine, best first.
-//!
-//! DirectML addresses a card by its position in DXGI's adapter list, so an [`Adapter`]'s
-//! `device_id` is simply that position. "Best" means most dedicated video memory: a real card
-//! (NVIDIA, AMD) carries gigabytes of its own, a shared-memory chip (Intel Iris) a token 128MB and
-//! borrows system RAM for the rest. The software adapter ("Microsoft Basic Render Driver") is
-//! left out — it is the CPU in disguise and slower than the CPU path.
+//! The graphics adapters in this machine, most dedicated video memory first; the software adapter
+//! is left out. See docs/architecture/modules/core-shot-classifier.md.
 
 #[derive(Debug, Clone)]
 pub struct Adapter {

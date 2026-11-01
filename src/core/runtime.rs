@@ -1,20 +1,13 @@
-//! The ONNX Runtime shared library, carried inside the executable.
-//!
-//! `ort`'s `load-dynamic` needs a real path to `LoadLibrary`, so the
-//! embedded copy is written out once to a per-user cache directory, keyed
-//! on its size + a content sample, and that path goes to `ort::init_from`.
-//! This exists only while the runtime cannot be linked in (`Cargo.toml`'s
-//! `ort` entry); with a static ORT >= 1.22, this module and
-//! `birefnet::init_runtime` both delete. See docs/architecture/05-single-exe.md.
+//! The ONNX Runtime shared library, carried inside the executable and written out once to a
+//! per-user cache directory, because `ort`'s `load-dynamic` needs a real path.
+//! See docs/architecture/05-single-exe.md.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// The DirectML build of ONNX Runtime, compiled into the executable.
-///
-/// Gitignored, at the repo root; a missing file fails the build. It runs the
-/// model on a graphics card or the CPU, so it is the only runtime Pproni carries.
+/// The DirectML build of ONNX Runtime (graphics card or CPU), the only runtime Pproni carries.
+/// Gitignored, at the repo root; a missing file fails the build.
 static DYLIB_BYTES: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime-directml.dll"));
 
@@ -33,10 +26,8 @@ fn embedded_files() -> [(&'static str, &'static [u8]); 2] {
 
 /// Path to an `onnxruntime.dll` on disk that `ort` can load.
 ///
-/// `ORT_DYLIB_PATH` wins when it points at a real file — the `examples/`
-/// dev harness sets it to run against a hand-placed runtime. Otherwise the
-/// embedded copy is materialised in a temp directory and that path is
-/// returned.
+/// `ORT_DYLIB_PATH` wins when it points at a real file (the `examples/` dev harness). Otherwise
+/// the embedded copy is materialised in a temp directory and that path is returned.
 pub fn onnxruntime_dylib() -> Result<PathBuf, String> {
     if let Some(p) = std::env::var_os("ORT_DYLIB_PATH") {
         let p = PathBuf::from(p);
@@ -51,12 +42,10 @@ pub fn onnxruntime_dylib() -> Result<PathBuf, String> {
     Ok(dylib)
 }
 
-/// Loads our `DirectML.dll` into the process by full path, before the runtime asks for it by name.
-///
-/// Windows hands a later request for the bare name `DirectML.dll` the copy already loaded, so the
-/// runtime gets the version we shipped, not whatever older one sits in System32. A failure is not
-/// fatal and not reported: the graphics-card route then fails to start and the model runs on the
-/// CPU. The handle is deliberately never released.
+/// Loads our `DirectML.dll` into the process by full path, before the runtime asks for it by name,
+/// so the runtime gets the version we shipped, not an older one in System32. A failure is not fatal
+/// and not reported (the model then runs on the CPU). The handle is deliberately never released.
+/// See docs/architecture/modules/core-runtime.md.
 #[cfg(windows)]
 fn preload_directml(dir: &Path) {
     use std::os::windows::ffi::OsStrExt;
@@ -71,12 +60,9 @@ fn preload_directml(dir: &Path) {
 #[cfg(not(windows))]
 fn preload_directml(_dir: &Path) {}
 
-/// Write the embedded files to `<base>/pproni-<tag>/`, reusing any that are
-/// already there at the right size.
-///
-/// `<base>` is the first of `%LOCALAPPDATA%`, the system temp dir, and the
-/// executable's own directory that we can actually write into — so a machine
-/// with an unset or read-only `TEMP` still starts.
+/// Write the embedded files to `<base>/pproni-<tag>/`, reusing any already there at the right size.
+/// `<base>` is the first writable of `%LOCALAPPDATA%`, the system temp dir and the exe's own
+/// directory, so a machine with an unset or read-only `TEMP` still starts.
 fn extract_embedded() -> Result<PathBuf, String> {
     let subdir = format!("pproni-{}", cache_tag());
     let mut last_err = String::from("no writable directory for the ONNX Runtime");
@@ -150,9 +136,7 @@ fn write_atomically(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> 
     }
 }
 
-/// A short hex tag identifying this exact runtime build: its length plus an
-/// FNV-1a hash of the head, middle and tail. Cheap to compute, and distinct
-/// whenever the embedded DLL changes.
+/// A short hex tag for this exact runtime build, distinct whenever the embedded DLL changes.
 fn cache_tag() -> String {
     const SAMPLE: usize = 4096;
     let n = DYLIB_BYTES.len();

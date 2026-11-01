@@ -1,10 +1,7 @@
 //! Batch product-image repositioner.
 //!
-//! Default (no args): watches the desktop `PPRONI-INPUT` folder, writes to `PPRONI-OUTPUT` and moves the
-//! originals to `PPRONI-BACKUP`. With path args (`<input_dir> <output_dir> [backup_dir]`) it runs a
-//! plain batch — used for development and testing on non-Windows hosts. Without a third arg the
-//! backup folder is `PPRONI-BACKUP` beside the output folder. `--enable-headcuts` anywhere in the
-//! arguments turns headcutting on for that run (the desktop flow asks instead).
+//! No args: the desktop flow. `<input_dir> <output_dir> [backup_dir]`: a plain batch;
+//! `--enable-headcuts` anywhere turns headcutting on. See docs/architecture/modules/main.md.
 
 mod app;
 

@@ -31,8 +31,8 @@ Partial: the BG type comes later.
   `mask_too_small` flag (probable full-bleed close-up: tiny mask, no uniform background) is
   reported separately (console/JSON) and never overrides it.
 * **BGC** — background colour: dominant colour of the inverse BiRefNet mask, emitted only when it
-  covers enough of that region. The old `run_dir` comment said >97.5%; the threshold actually
-  used is `BGC_PRESENCE` in `src/core/exporter/colors.rs` (0.9 at the time of writing).
+  covers at least `BGC_PRESENCE` of that region (`src/core/exporter/colors.rs`, 0.9 at the time
+  of writing).
 * **FGC** — foreground colour: weighted-median colour of the largest colour blob inside the mask.
   Omitted if the subject is too small to sample.
 * `--` separates the stem from the tags; `=` stands in for the spec's `:` (a colon is illegal in

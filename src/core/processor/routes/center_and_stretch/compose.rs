@@ -1,15 +1,7 @@
-//! R1 step 2 — build the square.
-//!
-//! The real part of the picture is laid into a blank canvas; each edge the square reaches past is then
-//! filled by one function, [`stretch_edge`]: left, right, top, bottom. Left and right go first so top
-//! and bottom read full-width rows: that fills the corners, which have no real pixels of their own.
-//!
-//! Per line (a row for left and right, a column for top and bottom) the **product band** (silhouette
-//! grown by the clearance) is untouched, and the **source** (background from the band out to the real
-//! border) is stretched evenly over itself and the **overhang** ([`stretch_line`]); nothing invented.
-//! A line with no source is filled flat with the background colour, never black, then replaced by a
-//! blend of the clean lines either side plus the photo's grain ([`borrow_neighbour_lines`]).
-//! See docs/work-state/2026-10-23-one-stretch-function.md.
+//! R1 step 2 — build the square: lay the real part of the picture into a blank canvas, then fill each
+//! edge the square reaches past with [`stretch_edge`]. Left and right go first so top and bottom read
+//! full-width rows: that fills the corners. The product band is never touched; nothing is invented.
+//! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 use image::{Rgb, RgbImage};
 
@@ -87,12 +79,8 @@ struct EdgeJob<'a> {
     real: (i64, i64),
 }
 
-/// Fill the overhang of one edge of the square. The only place where R1 stretches.
-///
-/// For every line crossing the edge, the segment between the canvas border and the product band is
-/// rewritten: the background between the band and the real border is stretched over all of it. A
-/// line with no background there is filled flat, then borrows from the nearest clean lines. The edge
-/// only sets how a pixel is addressed: a line is a row or a column, run outward from the band.
+/// Fill the overhang of one edge of the square: the only place where R1 stretches, the same code for
+/// all four edges. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) {
     let (r0, r1) = job.real;
     let horizontal = matches!(job.edge, Edge::Left | Edge::Right);
@@ -104,9 +92,8 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
     // Position of the `d`-th pixel outward from the band, whose edge on this side is `edge`.
     let outward = |edge: i64, d: i64| if low_side { edge - 1 - d } else { edge + d };
 
-    // The photo's own grain along this edge, measured on the real source before anything is stretched.
-    // Only a line with no background to stretch uses it (`borrow_neighbour_lines`), so it is measured
-    // only when there is one. That has to be known now: the loop below writes over the source.
+    // The photo's grain, for `borrow_neighbour_lines`: measured only when a line is bled, and now,
+    // before the loop below writes over the source.
     let has_bled_line = job.bands.iter().any(|&(lo, hi)| {
         let a = lo.clamp(r0, r1);
         let b = hi.max(a).clamp(r0, r1);
@@ -158,12 +145,8 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
 }
 
 /// The grain of the real source along one edge, per channel, as the standard deviation of the noise.
-///
-/// Measured on sampled pixels whose whole 3x3 window lies in the source of its own line and of the two
-/// lines beside it: the residual is `v - mean of the 8 neighbours`, and its 25th percentile (taken in
-/// flat areas, so texture does not count as grain) is scaled to a Gaussian's sigma. Pixels are
-/// addressed by their distance `k` from the real border, so the edges measure the same way. An edge
-/// with too little source to measure reads as no grain.
+/// Texture does not count; an edge with too little source reads as no grain.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn edge_grain(canvas: &RgbImage, job: &EdgeJob<'_>, at: &dyn Fn(i64, i64) -> (u32, u32), low_side: bool) -> [f32; 3] {
     let (r0, r1) = job.real;
     // How many source pixels each line has.
@@ -235,13 +218,9 @@ fn gauss(a: u64, b: u64, c: u64) -> f32 {
     ((-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()) as f32
 }
 
-/// Stretch `seg` (the source, ordered from the product band outward) evenly to `total` pixels.
-///
-/// One scale for the whole source — `total / n` — so no part of it is magnified more than another:
-/// the pixel next to the product is the source pixel next to it, and the last one is the border
-/// pixel. Reads are cubic (Catmull-Rom), which keeps the edges of the background's texture. When
-/// `total` is not more than the source there is nothing to cover, and the nearest `total` pixels are
-/// kept as they are.
+/// Stretch `seg` (the source, ordered from the product band outward) evenly to `total` pixels, one
+/// scale for all of it. With `total` not more than the source, the nearest `total` pixels are kept.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn stretch_line(seg: &[Rgb<u8>], total: usize) -> Vec<Rgb<u8>> {
     let n = seg.len();
     if total <= n {
@@ -251,9 +230,8 @@ fn stretch_line(seg: &[Rgb<u8>], total: usize) -> Vec<Rgb<u8>> {
     (0..total).map(|d| sample_at(seg, (d as f32 + 0.5) * step - 0.5)).collect()
 }
 
-/// Cubic (Catmull-Rom) read of `seg` at fractional index `s`. Where the stretch magnifies the most a
-/// linear read goes soft and smeared; the cubic keeps the edges of the background's texture. It
-/// passes exactly through the source pixels, and the result is clamped to a valid colour.
+/// Cubic (Catmull-Rom) read of `seg` at fractional index `s`: exact at the source pixels, clamped to
+/// a valid colour. Cubic, not linear, to keep the background's texture sharp.
 fn sample_at(seg: &[Rgb<u8>], s: f32) -> Rgb<u8> {
     let n = seg.len();
     let s = s.clamp(0.0, n as f32 - 1.0);
@@ -270,12 +248,9 @@ fn sample_at(seg: &[Rgb<u8>], s: f32) -> Rgb<u8> {
     Rgb([cubic(0), cubic(1), cubic(2)])
 }
 
-/// Plan A.5 neighbour-line borrow, for one edge. Each pixel of a line with no background (`bled`,
-/// holding a flat BGC/white fill) becomes the blend of the pixels at the same position on the nearest
-/// clean line either side, weighted by closeness, plus the photo's measured `grain` ([`edge_grain`]).
-/// A run of bled lines becomes a smooth ramp; a clean line on one side only is copied; an edge with
-/// no clean line keeps the flat fill. Only bled pixels are ever written, so every stretched or copied
-/// pixel is byte-for-byte unchanged. See docs/work-state/2026-10-23-one-stretch-function.md.
+/// Plan A.5 neighbour-line borrow, for one edge: each pixel of a `bled` line becomes the blend of the
+/// nearest clean lines either side plus `grain`. Only bled pixels are ever written.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn borrow_neighbour_lines(
     canvas: &mut RgbImage,
     job: &EdgeJob<'_>,
@@ -327,8 +302,7 @@ fn borrow_neighbour_lines(
             let (ax, ay) = at(donor_a, pos);
             let (bx, by) = at(donor_b, pos);
             let (pa, pb) = (*canvas.get_pixel(ax, ay), *canvas.get_pixel(bx, by));
-            // The blend of two clean lines is smooth, and the photo around it is not: add the photo's
-            // own grain, measured on this edge, so the filled lines do not read as flat blocks.
+            // The blend is smooth and the photo is not: add its grain, or it reads as flat blocks.
             let px = Rgb([0, 1, 2].map(|c| {
                 let v = pa[c] as f32 + (pb[c] as f32 - pa[c] as f32) * t + grain[c] * gauss(i as u64, d as u64, c as u64);
                 v.round().clamp(0.0, 255.0) as u8
@@ -421,8 +395,7 @@ mod tests {
 
     #[test]
     fn a_line_with_nothing_to_copy_is_filled_with_bgc_or_white_never_black() {
-        // det3/det4: the product runs to the border, so the left side has no source at all. The old
-        // code left that overhang black.
+        // det3/det4: the product runs to the border, so the left side has no source at all.
         {
             let mut canvas = RgbImage::from_pixel(20, 1, Rgb([200, 20, 20]));
             for x in 0..5 {

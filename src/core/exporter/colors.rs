@@ -21,13 +21,9 @@ pub struct ShotColors {
     pub fgc: Option<String>,
 }
 
-/// BGC and FGC, derived from the working image partitioned by the mask
-/// (bg = inverse mask, fg = mask).
-///
-/// Working resolution, not the original: `image` and `mask` have to share one
-/// coordinate space for the loop below to index both off the same `x`/`y`, and
-/// the `min` against the mask's dimensions would quietly clip a full-res image
-/// to its top-left corner rather than fail.
+/// BGC and FGC of `image`, split by `mask`. Pass the working-resolution image, not the original:
+/// both are indexed off the same `x`/`y`, and the `min` against the mask's size would quietly clip
+/// a full-res image to its top-left corner rather than fail.
 pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
     let (mut fg_hist, mut bg_hist) = (Hist::new(), Hist::new());
     let w = image.width().min(mask.width);
@@ -51,9 +47,8 @@ pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
         .filter(|(frac, _)| *frac >= BGC_PRESENCE)
         .map(|(_, c)| hex(c));
 
-    // FGC: the largest colour blob inside the mask -> its weighted-median colour.
-    // "Blob" = fullest histogram cluster (the winning 5-bit bin plus its ±1 neighbours)
-    // "Blob" =/= a spatially-connected region.
+    // FGC: weighted-median colour of the largest colour blob in the mask. A blob is the fullest
+    // 5-bit histogram bin plus its ±1 neighbours, not a spatially-connected region.
     let fgc = (fg_hist.total() as f64 >= frame * MIN_REGION_FRAC)
         .then(|| dominant_bin(&fg_hist))
         .flatten()
@@ -147,9 +142,9 @@ fn cluster_bins(top: usize) -> HashSet<usize> {
     set
 }
 
-/// Is colour `p` in the blob around bin `top`? The same question as `cluster_bins(top)` containing
-/// `p`'s bin, answered without building the set: a bin is in the blob when each of its three channels
-/// is within one step of `top`'s (the clamp at 0 and 31 only drops bins that do not exist).
+/// Is `p` in the blob around bin `top`? Same answer as `cluster_bins(top)` holding `p`'s bin,
+/// without the set: each channel within one step of `top`'s (the clamp at 0 and 31 there only
+/// drops bins that do not exist).
 fn in_cluster(top: usize, p: [u8; 3]) -> bool {
     let (tr, tg, tb) = ((top >> 10) & 31, (top >> 5) & 31, top & 31);
     let near = |t: usize, v: u8| t.abs_diff((v >> 3) as usize) <= 1;

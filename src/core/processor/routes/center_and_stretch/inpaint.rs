@@ -1,13 +1,7 @@
-//! R1 fallback: fill a segment of a line that has no background to stretch from.
-//!
-//! A line (a row or a column) is *fully bled* on one side when the product, grown by the clearance,
-//! runs to the border there: there is nothing to stretch and nothing to invent from. Those segments
-//! land here and get a flat BGC-or-white fill; the caller may then replace them with a clean
-//! neighbouring line's background. Every line that does have a source stays with
-//! [`super::compose`]; this module never touches them.
-//!
-//! R1 does not use [`fill_segment`]'s `left_ctx`/`right_ctx` arms. A wider inpainter, if ever
-//! needed, slots in behind the same signature. See docs/work-state/open-r1-stretch-follow-ups.md.
+//! R1 fallback: a flat BGC-or-white fill for a segment of a line that has no background to stretch
+//! from (*fully bled*). Lines with a source stay with [`super::compose`]. R1 does not use
+//! [`fill_segment`]'s `left_ctx`/`right_ctx` arms.
+//! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 use image::Rgb;
 
@@ -19,8 +13,8 @@ use super::super::super::super::config;
 ///   ("left" = lower output index, whatever image edge that is), or `None` at the segment's end.
 /// * `bgc` — the global or per-edge background colour, if found; `None` gives flat white (R3's canvas).
 ///
-/// Noise at [`config::R1_INPAINT_NOISE_SIGMA`] (a standard deviation) keeps a flat fill from reading
-/// as a dead-flat seam against the JPEG-noisy stretched pixels next to it.
+/// Adds uniform noise of amplitude [`config::R1_INPAINT_NOISE_SIGMA`], so the fill is not a
+/// dead-flat seam against the JPEG-noisy stretched pixels.
 pub fn fill_segment(
     out: &mut [Rgb<u8>],
     left_ctx: Option<Rgb<u8>>,
@@ -71,7 +65,7 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8
 }
 
-/// Approximate N(0, sigma) jitter from a signed byte roll in [-128, 127].
+/// Uniform jitter of up to about ±`sigma`, from a signed byte roll in [-128, 127].
 fn jitter(v: u8, sigma: f32, roll: i8) -> u8 {
     if sigma <= 0.0 {
         return v;
@@ -81,8 +75,7 @@ fn jitter(v: u8, sigma: f32, roll: i8) -> u8 {
     (v as f32 + d).round().clamp(0.0, 255.0) as u8
 }
 
-/// A tiny deterministic PRNG seeded by the context colours and segment length — so repeated runs
-/// of the same inpaint produce the same output, which keeps the output image deterministic.
+/// A tiny xorshift PRNG seeded by the context colours and segment length: same input, same fill.
 struct TinyRng(u64);
 
 impl TinyRng {

@@ -1,9 +1,8 @@
 //! Default (double-click) flow: find the desktop input folder, process, report in the console.
 //!
-//! Three screens, one frame. Each opens with the banner and two status lines, closes with a rule,
-//! a callout and a rule, and carries one body between them: the input folder (start), the progress
-//! bar (running), or the output folder (finish). Each clears the console first, so a screen
-//! replaces the one before it instead of scrolling under it. `theme` owns every rule and colour.
+//! Three screens, one frame: banner and two status lines, a body — input folder (start), progress
+//! bar (running) or output folder (finish) — then rule, callout, rule. Each clears the console
+//! first, so it replaces the last instead of scrolling. `theme` owns every rule and colour.
 
 use super::{batch, console, desktop, header, i18n, progress, theme};
 use pproni::core::options::Options;
@@ -45,8 +44,8 @@ pub fn run() {
         format!("{}{}", i18n::backup_label(lang), backup.display()),
         format!("{}{}", i18n::output_label(lang), output.display()),
     ];
-    // The bar is drawn first and the callout under it stays put; `Progress` walks the cursor back
-    // over these lines on every redraw, so they have to be handed over rather than printed here.
+    // Handed to `Progress`, not printed: it draws them under the bar and steps the cursor back over
+    // them on every redraw.
     let footer = vec![
         String::new(),
         theme::rule(),
@@ -60,8 +59,7 @@ pub fn run() {
     let _ = std::fs::create_dir_all(&backup);
 
     open_screen(&status);
-    // The blank line above the bar. `Progress` draws from the bar down and rewinds only over its
-    // own block, so this one has to be printed here — it is never repainted.
+    // The blank line above the bar, printed here: `Progress` draws from the bar down only.
     println!();
 
     let summary = batch::run(&input, &output, &backup, &footer, lang, &options);
@@ -76,18 +74,16 @@ pub fn run() {
     println!();
     print_footer(i18n::close_line(lang));
 
-    // Below the frame, so a clean run shows the screen exactly as designed. The count is already
-    // carried by the "N skipped" half of the summary.
+    // Below the frame, so a clean run shows the screen as designed; the count is in "N skipped".
     for line in &summary.failures {
         println!("{}{line}{}", theme::DARK, theme::RESET);
     }
     console::pause();
 }
 
-/// The one question before the batch. It is the running screen with everything dimmed to the
-/// slug's grey and an empty bar, and the question takes the callout line where the running screen
-/// says "Close this window…". A blinking block cursor waits right after it. The real running
-/// screen then redraws over this one.
+/// The one question before the batch: the running screen dimmed to the slug's grey, an empty bar,
+/// and the question on the callout line ("Close this window…" there) with a blinking block cursor
+/// after it. The real running screen then redraws over this one.
 fn ask_headcuts(status: &[String; 2], lang: i18n::Lang) -> bool {
     let question = i18n::headcuts_question(lang);
     draw_top(status, true);
@@ -97,8 +93,8 @@ fn ask_headcuts(status: &[String; 2], lang: i18n::Lang) -> bool {
     println!("{}", theme::rule());
     println!("{}", theme::question_callout(question));
     println!("{}", theme::rule());
-    // Back up two lines to the question and out to the column after it; `ESC[1 q` is a blinking
-    // block cursor, and `ESC[0 q` below hands the cursor back to the terminal's own setting.
+    // Up two lines, to the column after the question. `ESC[1 q` = blinking block cursor; `ESC[0 q`
+    // below restores the terminal's own.
     print!("\x1b[2A\x1b[{}G\x1b[1 q", theme::answer_column(question));
     let _ = std::io::stdout().flush();
     let answer = console::ask_yes_no();
@@ -107,16 +103,14 @@ fn ask_headcuts(status: &[String; 2], lang: i18n::Lang) -> bool {
     answer
 }
 
-/// `drop_prompt` as owned strings — the other two screens build their status lines with
-/// `format!`, so [`open_screen`] takes `String`s and this one has to match.
+/// `drop_prompt` as owned strings, what [`open_screen`] takes (the other screens use `format!`).
 fn drop_prompt_lines(lang: i18n::Lang) -> [String; 2] {
     i18n::drop_prompt(lang).map(str::to_owned)
 }
 
-/// Wipe the console and draw the top of the frame: banner, two status lines, closing rule, and
-/// the blank line the body sits on. The blank belongs here rather than to each caller — the
-/// running screen's body is drawn by `Progress`, which starts at the bar. The caller follows with
-/// the body and [`print_footer`].
+/// Wipe the console and draw the top of the frame: banner, status lines, rule, and the blank line
+/// the body sits on (here, as `Progress` draws the running body from the bar down). The caller
+/// adds the body and [`print_footer`].
 fn open_screen(status: &[String; 2]) {
     draw_top(status, false);
 }
@@ -133,9 +127,8 @@ fn draw_top(status: &[String; 2], dim: bool) {
     println!();
 }
 
-/// The folder path on its own indented line, bold in `colour` and clickable under Windows
-/// Terminal. `colour` differs per screen — teal for the input folder, orange for the output one.
-/// The hyperlink is BEL-terminated OSC-8 — Windows Terminal takes either terminator.
+/// `path` on its own indented line, bold in `colour` (teal input, orange output), clickable under
+/// Windows Terminal as a BEL-terminated OSC-8 link (it takes either terminator).
 fn print_folder(path: &Path, colour: &str) {
     let painted = format!("{}{}{}{}", theme::BOLD, colour, path.display(), theme::RESET);
     let line = match console::folder_url(path) {
@@ -153,8 +146,7 @@ fn print_footer(text: &str) {
     let _ = std::io::stdout().flush();
 }
 
-// True when `dir` has something for batch::run to process: an image directly inside it, or an
-// image inside one of its direct subfolders (batch recurses exactly one level — see batch.rs).
+// True when `dir` holds an image directly or in a direct subfolder (batch.rs recurses one level).
 fn has_any_image(dir: &Path) -> bool {
     has_direct_image(dir) || has_subfolder_image(dir)
 }

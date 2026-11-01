@@ -1,14 +1,9 @@
 //! Exporter: enforce the output size envelope, save to `PPRONI-OUTPUT`, then move the original out of
-//! `PPRONI-INPUT` into `PPRONI-BACKUP`.
+//! `PPRONI-INPUT` into `PPRONI-BACKUP` (only after a successful save; never deleted).
+//! See docs/architecture/modules/core-exporter.md.
 //!
-//! Every route ends here, so no route can bypass the envelope. The move only runs after a
-//! successful save, so a write failure leaves the source untouched for a retry; originals are never
-//! deleted. See docs/architecture/modules/core-exporter.md.
-//!
-//! Debug tags: off by default (a clean `<stem>.jpg`). A `PPRONI_DEBUG_TAGS` file next to the exe
-//! renames each output `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>]` (BGC/FGC from `colors`) and
-//! writes `<stem>_segmask.jpg` beside it; no verdict gives `EIX=____` and no segmask.
-//! See docs/architecture/02-debug-tags.md.
+//! Debug tags (off by default): a `PPRONI_DEBUG_TAGS` file next to the exe tags each output's name
+//! and writes `<stem>_segmask.jpg` beside it. See docs/architecture/02-debug-tags.md.
 
 pub mod colors;
 pub mod icc;
@@ -32,8 +27,8 @@ pub struct ShotInputs<'a> {
     pub mask: &'a Mask,
     /// The edge verdict.
     pub class: &'a ShotClassification,
-    /// BGC/FGC sampled in `core::process_file` so the trace log and the filename tag share one
-    /// measurement instead of calling `colors::sample` twice per image.
+    /// BGC/FGC from the one `colors::sample` call in `core::process_file`, shared by the trace log
+    /// and the filename tag.
     pub colors: &'a ShotColors,
 }
 
@@ -55,9 +50,8 @@ pub fn export(
     move_to_backup(source, backup)
 }
 
-/// Move the original to its `PPRONI-BACKUP` slot, creating the subfolder if needed. `rename` is the
-/// fast path; when it fails (a different volume, typically) fall back to copy-then-remove so the
-/// original still leaves the input folder.
+/// Move the original to its `PPRONI-BACKUP` slot, creating the subfolder. Falls back to
+/// copy-then-remove when `rename` fails (typically another volume).
 fn move_to_backup(source: &Path, backup: &Path) -> Result<(), String> {
     if let Some(parent) = backup.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("backup folder: {e}"))?;
@@ -69,16 +63,13 @@ fn move_to_backup(source: &Path, backup: &Path) -> Result<(), String> {
     std::fs::remove_file(source).map_err(|e| format!("remove original after backup: {e}"))
 }
 
-/// A `PPRONI_DEBUG_TAGS` file next to the running executable turns on filename tagging and the
-/// per-image segmask. The same marker drives [`trace`], so one function serves both.
+/// On when the `PPRONI_DEBUG_TAGS` marker sits next to the exe; the same marker drives [`trace`].
 fn tags_enabled() -> bool {
     trace::debug_enabled()
 }
 
-/// The filename tag string: `--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>]`. EIX is the classifier's
-/// verdict; BGC/FGC are sampled here, from the true-colour working copy and the mask.
-/// `--` separates the stem from the tags and each tag from the next; `=` stands in for the spec's
-/// `:` (illegal in Windows filenames).
+/// The filename tag string, `--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>]`, from the classifier's verdict
+/// and the sampled colours. See docs/architecture/02-debug-tags.md.
 pub fn shot_tags(shot: &ShotInputs<'_>) -> String {
     tags(&eix_bits(&shot.class.touches_edges), shot.colors)
 }
@@ -120,10 +111,9 @@ fn write_tagged(img: &RgbImage, dest: &Path, shot: Option<ShotInputs<'_>>) -> Re
     Ok(())
 }
 
-/// The working-resolution mask, upscaled to the output image's size and written as an sRGB JPEG so
-/// it lines up pixel-for-pixel with the tagged output beside it. Nearest-neighbour keeps the
-/// subject/background boundary truthful — JPEG softens it a touch regardless. Grayscale is expanded
-/// to RGB (0 = background) and saved through the same JPEG path as the outputs.
+/// Write the working-resolution mask nearest-upscaled to `out_w`×`out_h`, as grey RGB (0 =
+/// background) through the outputs' sRGB JPEG path, so it overlays the tagged output. Nearest keeps
+/// the boundary truthful; JPEG softens it a touch. See docs/architecture/02-debug-tags.md.
 fn save_segmask(mask: &Mask, out_w: u32, out_h: u32, path: &Path) -> Result<(), String> {
     let mut gray = GrayImage::new(mask.width, mask.height);
     for (px, &v) in gray.pixels_mut().zip(mask.data.iter()) {

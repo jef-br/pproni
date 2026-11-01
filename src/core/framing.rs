@@ -2,13 +2,14 @@
 //!
 //! Trim 1 ([`crate::core::preprocessor::optimizer`]) boxes everything that is not backdrop; what it
 //! trims off is real backdrop round a floating product, or not picture at all. The mask of the one
-//! model run, on trim 1's crop, is the reliable fact that tells them apart.
-//! * **Bars** on one axis: [`Decision::Centre`], R1 cuts the square from the content box with equal
-//!   padding either side, aligned on nothing. See docs/architecture/02-modules-core.md.
+//! model run, on trim 1's crop, tells them apart.
+//! * **Bars** on one axis: [`Decision::Centre`], R1 centres the content box, aligned on nothing.
 //! * **Frame** all round: [`Decision::Peel`] crops to trim 1's box and the edge check runs again (the
-//!   product the frame hid now meets the new border). See docs/work-state/2026-10-21-trims-and-framing.md.
+//!   product the frame hid now meets the new border).
+//! * Everything else: [`Decision::Keep`].
 //!
-//! Everything else is [`Decision::Keep`]. The decisions are pure, so they are tested without a model.
+//! The rules: see docs/architecture/02-modules-core.md. The decisions are pure, so they are tested
+//! without a model.
 
 use crate::core::config;
 use crate::core::shot_classifier::geometry::Rect;
@@ -84,12 +85,9 @@ pub fn decide(frame: (u32, u32), first: Rect, second: Option<Rect>, touched: usi
     (Decision::Peel(first), format!("{insets}: a square box round a smaller subject (mask {m:?}) inside a ring on all four sides, so the frame is peeled"))
 }
 
-/// The colour of the frame: the dominant colour of the picture's outer four lines all the way round.
-///
-/// Dominant, not median, and four lines deep rather than one: the very last row or column of a JPEG is
-/// often a one-pixel line of another colour, and on a thin frame that line can be half of the outer ring
-/// (it was, on the frame this was written for). Colours are grouped in 5-bit bins; the answer is the
-/// mean of the fullest bin.
+/// The colour of the frame: the mean of the fullest 5-bit colour bin over the picture's outer four
+/// lines all the way round. Dominant and four deep, so a one-pixel JPEG edge line of another colour
+/// cannot win. See docs/architecture/modules/core-framing.md.
 pub fn border_colour(img: &RgbImage) -> [u8; 3] {
     let (w, h) = img.dimensions();
     let mut count = vec![0u32; 32 * 32 * 32];
@@ -119,12 +117,9 @@ pub fn border_colour(img: &RgbImage) -> [u8; 3] {
 
 /// Peel deeper than trim 1's box wherever the frame goes on inside it.
 ///
-/// Trim 1 stops where something not of the frame's colour begins, so where the product runs into the
-/// frame (a dark product against a dark frame) the box can stop several pixels inside it. Each side
-/// of `first` is moved inward while its outermost line is still frame: at least 99% of the pixels
-/// that are NOT under the mask lie within `T_EDGE_FLAT` of `frame` on every channel. The mask is what
-/// makes this safe — product pixels never count against the frame, and a line with real background
-/// or product outside the mask stops the peel. No side moves more than a quarter of the box.
+/// Each side of `first` moves inward while its outermost line is still frame: at least 99% of the
+/// pixels NOT under the mask lie within `T_EDGE_FLAT` of `frame` on every channel. No side moves more
+/// than a quarter of the box. See docs/architecture/modules/core-framing.md.
 pub fn deepen_peel(img: &RgbImage, mask: &Mask, first: Rect, frame: [u8; 3]) -> Rect {
     let near = |x: u32, y: u32| {
         let p = img.get_pixel(x, y).0;
@@ -202,8 +197,7 @@ mod tests {
         // (image, trim 1's box, trim 2's box, edges the subject touches, mask box)
         let cases = [
             // 41: 1024x1024, bars 132 px each side, full height, subject on one edge. Trim 2 moved
-            // it a little; that is not needed to know these are bars. A lifestyle scene cannot be
-            // stretched, so it is centred.
+            // it a little; that is not needed to know these are bars.
             ("41", r(132, 0, 760, 1024), Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952))),
             // 46: 193 px above and 212 below, and 14 px short on the right where the product is
             // pale: a sliver missed on one side does not stop it being bars.

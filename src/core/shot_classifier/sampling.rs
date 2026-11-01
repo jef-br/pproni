@@ -1,8 +1,5 @@
-//! Background color sampling for one edge.
-//!
-//! One function, not four: per-edge behaviour comes entirely from
-//! [`EdgeView`]'s coordinate transform, so this runs once per edge with
-//! no edge-specific branching here.
+//! Background colour sampling for one edge. No edge-specific branching: [`EdgeView`] does it.
+//! See docs/architecture/modules/core-shot-classifier-sampling.md.
 
 use super::geometry::{BoolSummedArea, Edge, EdgeView, Grid};
 use super::segmentation::Mask;
@@ -15,10 +12,8 @@ pub struct ColorStats {
 }
 
 impl ColorStats {
-    /// Squared Euclidean distance in RGB space. Cheap and sufficient for
-    /// a foreground/background decision; swap for a perceptual distance
-    /// (e.g. CIEDE2000 in Lab) later if the classifier proves sensitive
-    /// to it on hard cases.
+    /// Squared Euclidean distance in RGB space: cheap, enough for foreground/background. See
+    /// docs/architecture/modules/core-shot-classifier-sampling.md.
     pub fn distance_sq(&self, px: Rgb<u8>) -> f32 {
         let dr = px[0] as f32 - self.mean[0];
         let dg = px[1] as f32 - self.mean[1];
@@ -43,10 +38,8 @@ impl<'a> Grid for ImageGrid<'a> {
     }
 }
 
-/// Samples the background color near one edge: a `strip_px`-wide band
-/// starting at the image border, with the mask — plus a `safety_px`
-/// margin around it — excluded, so no subject-edge pixels leak into the
-/// background statistics.
+/// Background colour of a `strip_px`-wide band at `edge`'s border, leaving out the mask plus a
+/// `safety_px` margin so no subject-edge pixels leak in. `None` when nothing is left to sample.
 pub fn sample_background_color(
     image: &RgbImage,
     mask: &Mask,
@@ -91,13 +84,8 @@ pub fn sample_background_color(
     })
 }
 
-/// True if any mask pixel within `margin` (Chebyshev distance) of
-/// `(cx, cy)`, in the edge-canonical coordinate space. Used to carve the
-/// subject-plus-safety-margin out of the background sampling strip.
-///
-/// `margin` is a full-resolution number — the working-resolution safety
-/// margin times the scale between the two — so the window can be huge; the
-/// summed-area table answers in four lookups. See
+/// True if any mask pixel is within `margin` (Chebyshev distance) of `(cx, cy)`, edge-canonical
+/// coordinates. `margin` is in full-resolution pixels, so the window can be huge. See
 /// docs/architecture/modules/core-shot-classifier-sampling.md.
 fn mask_is_near(mask_sums: &BoolSummedArea, cx: u32, cy: u32, margin: u32) -> bool {
     mask_sums.any_in(

@@ -17,3 +17,8 @@ case, only reached its answer after reading every cell. `geometry::BoolSummedAre
 over the mask) gives the same answer in four lookups. Building it is one pass over the rows the
 strip can actually reach; every query after it is O(1). The old window scan is kept as the
 reference in the `summed_area_matches_the_window_scan` test.
+
+## The colour distance (`ColorStats::distance_sq`)
+Squared Euclidean distance in RGB space: cheap and sufficient for a foreground/background decision.
+Swap it for a perceptual distance (e.g. CIEDE2000 in Lab) later if the classifier proves sensitive
+to it on hard cases.

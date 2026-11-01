@@ -1,15 +1,8 @@
 //! Shot classifier: is the subject touching an image border? Answered from segmentation, not a
-//! bounding box, in two passes:
-//! - **Pass 1** ([`gate`]): a cheap per-edge scan of the mask's border band, which keeps pass 2
-//!   off the common case (subject nowhere near an edge).
-//! - **Pass 2** ([`refine`]): for each flagged edge, trimap + colour matting at full original
-//!   resolution. Only its refined result decides touching or not.
-//!
-//! [`segmentation::SegmentationModel`] lets gate/refine run against a stand-in model;
-//! [`super::classify`] wires the real BiRefNet up and feeds [`classify_instance`] the
-//! preprocessor's two resolutions. Last, [`route`] reads the verdict, picks the route and sends
-//! the image to it; [`plan`] is the square R1 is told to cut, which the choice of route depends on.
-//! See docs/specs/03-shot-classifier.md.
+//! bounding box, in two passes: [`gate`] (a cheap border-band scan per edge), then [`refine`]
+//! (trimap + colour matting at full resolution; only its result decides). See
+//! docs/specs/03-shot-classifier.md. Wiring to [`super::classify`], [`route`] and [`plan`]: see
+//! docs/architecture/modules/core-shot-classifier.md.
 
 pub mod birefnet;
 pub(crate) mod cipher;
@@ -39,26 +32,20 @@ fn edge_name(e: Edge) -> &'static str {
     }
 }
 
-/// Full verdict for one detected instance: which edges, if any, it
-/// actually touches, and whether the mask behind that answer is worth
-/// believing at all.
+/// Verdict for one instance: the edges it touches, and whether its mask is worth believing.
 #[derive(Debug, Clone, Default)]
 pub struct ShotClassification {
     pub touches_edges: Vec<Edge>,
-    /// The mask covers too little of the frame to be a subject — see [`shotcode::mask_too_small`].
-    ///
-    /// Measured here, next to the mask it is measured from, and consumed in two places: [`route`]
-    /// sends it to the route that crops rather than the one that frames, and the debug tag reports
-    /// it. Neither recomputes it, so the tag can never disagree with the route.
+    /// The mask covers too little of the frame to be a subject ([`shotcode::mask_too_small`]).
+    /// Measured once, here; [`route`] (crop, not frame) and the debug tag both read it. Never
+    /// recompute it elsewhere, or the tag can disagree with the route.
     pub mask_too_small: bool,
-    /// Per-edge refinement detail, for edges pass 1 flagged as worth
-    /// checking — useful for logging or visual export even when the
-    /// verdict came back "not touching".
+    /// One entry per edge pass 1 flagged, kept even when the verdict is "not touching" (for logging
+    /// and visual export).
     pub refinements: Vec<EdgeRefinement>,
 }
 
-/// Runs both passes for one instance: gates on all four edges, then
-/// refines only the ones the gate flagged.
+/// Runs both passes for one instance: gate on all four edges, refine only the flagged ones.
 pub fn classify_instance(input: &RefinementInput, gate_margin_px: u32, params: RefineParams) -> ShotClassification {
     let proximity = gate::gate(&input.instance.mask, gate_margin_px);
     trace::note(|| format!("gate flagged {:?} (band {gate_margin_px}px)", proximity.near));

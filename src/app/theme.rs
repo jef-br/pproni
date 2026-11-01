@@ -1,10 +1,8 @@
-//! Console styling shared by the shell: the palette, the full-width rule, and the callout line
-//! that closes every screen — `⏵` marker, text, and the right-aligned version slug.
+//! Console styling for the shell: palette, full-width rule, and the callout line closing every
+//! screen (`⏵` marker, text, right-aligned version slug). Hand-tuned: no logic but the padding.
 //!
-//! Hand-tuned on purpose — there is no logic here beyond the callout's padding. Colours are
-//! 24-bit ANSI, matching the hex values in the design mockups; `console::init` turns VT processing
-//! on before any of this is printed. Classic conhost quantises truecolour to its nearest 16, which
-//! is an acceptable degradation — Windows Terminal is the target.
+//! Colours are 24-bit ANSI matching the design mockups' hex; `console::init` enables VT first.
+//! Classic conhost rounds them to its nearest 16: acceptable, Windows Terminal is the target.
 
 pub const ORANGE: &str = "\x1b[38;2;255;172;24m"; // #ffac18 — logo, ⏵ marker, finish link
 pub const WHITE: &str = "\x1b[38;2;255;255;255m"; // #ffffff — status lines, callout text
@@ -15,9 +13,8 @@ pub const MAGENTA: &str = "\x1b[38;2;255;85;255m"; // #ff55ff — the headcut qu
 pub const BOLD: &str = "\x1b[1m";
 pub const RESET: &str = "\x1b[0m";
 
-/// Width of every horizontal rule, and the column the version slug is flush against. Wide enough
-/// for the longest localized callout line plus the slug, narrow enough not to wrap in a default
-/// 100-column console.
+/// Width of every rule, and the column the slug is flush against: fits the longest localized
+/// callout plus the slug, and does not wrap in a default 100-column console.
 pub const WIDTH: usize = 97;
 
 /// Vendor half of the version slug; the version itself comes from Cargo.
@@ -26,22 +23,19 @@ const VENDOR: &str = "PPTech";
 /// Left margin shared by the rules, the progress bar and the folder lines.
 pub const INDENT: usize = 2;
 
-/// Visible prefix of a callout line: the shared indent, the marker, one space. Derived from
-/// `INDENT` rather than written out, so moving the marker can't desync it from what `callout`
-/// actually prints — that is a silent one-column overhang past the rule.
+/// Visible prefix of a callout line: indent, marker, one space. Derived from `INDENT` so it can't
+/// drift from what `callout` prints (a silent one-column overhang past the rule).
 const MARKER_WIDTH: usize = INDENT + 2;
 
-/// The separator that brackets each block. It runs to [`WIDTH`] like everything else on screen,
-/// but opens with two blanks instead of two dashes, so it lines up with the indented logo.
+/// The separator around each block: runs to [`WIDTH`], opening with two blanks to line up with the
+/// indented logo.
 pub fn rule() -> String {
     format!("  {DARK}{}{RESET}", "─".repeat(WIDTH - INDENT))
 }
 
-/// The closing line of every screen: the ` ⏵ ` marker and `text` on the left, the version slug
-/// flush against [`WIDTH`] on the right.
-///
-/// The gap saturates at one space. A localized `text` long enough to collide with the slug pushes
-/// the line past `WIDTH` and wraps — ugly, but an underflow here would panic in release.
+/// The closing line of every screen: ` ⏵ ` marker and `text` left, version slug flush against
+/// [`WIDTH`]. The gap saturates at one space: a `text` that hits the slug wraps the line (ugly),
+/// where an underflow would panic in release.
 pub fn callout(text: &str) -> String {
     let slug = slug();
     let used = MARKER_WIDTH + text.chars().count() + slug.chars().count();

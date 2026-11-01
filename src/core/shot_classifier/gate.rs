@@ -1,9 +1,6 @@
-//! Pass 1: the cheap gate.
-//!
-//! Scans only a `margin_px`-wide band along each edge of the mask, so it
-//! stays fast across a batch. A hit means "worth running pass 2 for this
-//! edge", not "touches": the working-resolution, upsampled mask isn't
-//! trusted for the verdict. See docs/specs/03-shot-classifier.md.
+//! Pass 1, the cheap gate: scans only a `margin_px`-wide band along each edge of the mask, so it
+//! stays fast across a batch. A hit means "run pass 2 on this edge", not "touches". See
+//! docs/specs/03-shot-classifier.md.
 
 use super::geometry::{Edge, EdgeView, Grid};
 use super::segmentation::Mask;

@@ -7,6 +7,20 @@ verdict picks it: [routing](../03-routing.md) and [spec §5](../../specs/05-rout
 decisions sit in `shot_classifier::route` and not in the routes:
 [work state 2026-10-29](../../work-state/2026-10-29-routing-in-shot-classifier.md).
 
+## processor/mod.rs
+
+`core::processor` holds one thing: `routes`, the routes a classified image can take to reach its
+square canvas.
+
+## routes/mod.rs
+
+The three routes: R1 `center_and_stretch` ([its own page](core-processor-routes-center-and-stretch.md)),
+R2 `crop_square`, R3 `fallback`. Each one turns the input picture into the output picture, and
+nothing else. Which route runs, and with what plan, is decided before it by
+`shot_classifier::route` (`decide`), and `send` then hands the image to the route. A route never
+hands the image on to another one. The one check left inside a route is R1's seam-carve quality
+gate on a textured scene, which needs the pixels it has just produced.
+
 ## crop_square.rs (R2)
 
 The route for images where framing *around* the subject is the wrong move, either because there is

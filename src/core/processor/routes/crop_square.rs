@@ -1,9 +1,6 @@
 //! R2 — crop a square out of the frame: the largest square the image already contains, centred on
 //! the *frame*, not on the mask. It adds nothing.
-//!
-//! Three verdicts arrive here from `shot_classifier::route::decide`: the mask covers too little of
-//! the frame, left and right both bled and nothing else, or all four edges bled.
-//! See docs/architecture/modules/core-processor-routes.md.
+//! Why its three verdicts land here: see docs/architecture/modules/core-processor-routes.md.
 
 use super::super::super::preprocessor::Prepared;
 use crate::core::shot_classifier::route::Shot;

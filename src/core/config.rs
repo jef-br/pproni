@@ -3,12 +3,10 @@
 /// JPEG quality for the saved output.
 pub const JPEG_QUALITY: u8 = 95;
 
-/// Gates the headcut question. If false, Pproni runs without headcuts. Set to true while developing
-/// to enable headcuts.
+/// Gates the headcut question: false runs Pproni without headcuts. Set true while developing.
 pub const PERMIT_HEADCUTS:bool = false;
 
 // ---- Shot classification ----------------------------------------------------------------------
-//
 // `GATE_MARGIN_PX` and `REFINE_NARROW_BAND_PX` are in working-resolution pixels, so they are coupled
 // to `WORKING_SIZE` — change one and the others shift meaning.
 // See docs/architecture/01-why-two-resolutions.md.
@@ -23,11 +21,10 @@ pub const GATE_MARGIN_PX: u32 = 20;
 /// Pass-2 graze test, narrow band.
 pub const REFINE_NARROW_BAND_PX: u32 = 5;
 
-/// Pass-2 graze test threshold.
-/// The graze test compares 2 bands:
-/// A/B = <band sized to 'GATE_MARGIN_PX'> / <band sized to 'REFINE_NARROW_BAND_PX'>
-/// A/B > GRAZE_RATIO_MAX → R1 → bands have the same productwidth so the direction is deemed to intersect the image edge, touching.
-/// A/B <= GRAZE_RATIO_MAX → R2 → indicates a changing direction, is interpreted as the product grazing the image edge, not touching.
+/// Pass-2 graze test threshold on A/B, A the band sized to `GATE_MARGIN_PX`, B the one sized to
+/// `REFINE_NARROW_BAND_PX`. Above it (R1) both bands hold the same product width: the product
+/// touches the image edge. At or below it (R2) the direction changes: it only grazes the edge.
+/// See docs/architecture/modules/core-shot-classifier-refine.md.
 pub const GRAZE_RATIO_MAX: f32 = 0.80;
 
 /// Below this fraction of the frame, a mask is not a subject — unless its longest side reaches
@@ -35,8 +32,8 @@ pub const GRAZE_RATIO_MAX: f32 = 0.80;
 pub const MASK_MIN_COVERAGE: f64 = 0.05;
 
 /// A mask under `MASK_MIN_COVERAGE` is still a subject when its longest side, in original pixels,
-/// is at least this long. `MIN_SIZE` less R1's margin: 800 − 8.4% = 732.8, rounded to 733; derived
-/// so it follows `MIN_SIZE` and `R1_MARGIN`. The user's rule.
+/// is at least this long: `MIN_SIZE` less R1's margin (800 − 8.4% = 732.8 → 733), so it follows
+/// `MIN_SIZE` and `R1_MARGIN`. The user's rule.
 /// See docs/work-state/2026-10-29-routing-in-shot-classifier.md.
 pub const MASK_MIN_LONGEST_SIDE_PX: u32 = (MIN_SIZE as f64 * (1.0 - R1_MARGIN as f64) + 0.5) as u32;
 
@@ -49,11 +46,9 @@ pub const MASK_MIN_LONGEST_SIDE_PX: u32 = (MIN_SIZE as f64 * (1.0 - R1_MARGIN as
 /// 75%; 100% is the next edge's 0%).
 pub const TRIM_SAMPLES_PER_EDGE: u32 = 4;
 
-/// Outlier drop on the border samples: kept when the L1 colour distance to the per-channel median
-/// (`|ΔR|+|ΔG|+|ΔB|`, 0 to 765) is at most `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD` (MAD: the
-/// median of those distances). The floor keeps a near-uniform edge from being shredded; the MAD term
-/// widens the band on noisy edges. The `TRIM_MIN_KEEP` closest samples always stay, so a
-/// mostly-product edge cannot collapse the backdrop range.
+/// Outlier drop on the border samples: kept when the L1 colour distance (0 to 765) to the
+/// per-channel median is at most `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD`; the `TRIM_MIN_KEEP`
+/// closest always stay. See docs/architecture/modules/core-preprocessor-optimizer.md.
 pub const TRIM_OUTLIER_FLOOR: u32 = 120;
 pub const TRIM_OUTLIER_K: f64 = 1.5;
 pub const TRIM_MIN_KEEP: usize = 4;
@@ -68,10 +63,10 @@ pub const TRIM_CLOSE_K: u32 = 2;
 pub const TRIM_MARGIN_MIN_PX: u32 = 10;
 pub const TRIM_MARGIN_SHARE: f64 = 0.10;
 
-/// Trim 2, the control (`optimizer::recheck_box`): the trim is run a second time on trim 1's tight
-/// box. If any side of the second box differs from the first by MORE than this many pixels, the box
-/// was not stable — a mono-colour frame (a passe-partout) sat round the real picture — and the
-/// second box replaces the first. Starting value, to be calibrated.
+/// Trim 2, the control (`optimizer::recheck_box`): it counts as moved when a side of the re-run box
+/// differs from trim 1's by MORE than this many pixels — a mono-colour frame (a passe-partout) may
+/// sit round the picture. Starting value, to be calibrated.
+/// See docs/architecture/01-why-two-resolutions.md.
 pub const TRIM_RECHECK_TOLERANCE_PX: u32 = 2;
 
 /// How far, in working pixels, the segmask's box may sit from a trim box and still count as "equal"
@@ -112,7 +107,7 @@ pub const MAX_SIZE: u32 = 2000;
 
 /// Margin R1 leaves around the subject, as a fraction of the square's side: an axis with both sides
 /// free needs `extent * (1 + R1_MARGIN)`, 4.2% a side. The square is the larger of the two axes'
-/// needs (`shot_classifier::plan::SquarePlan::new`). See docs/architecture/02-modules-core.md.
+/// needs (`shot_classifier::plan::SquarePlan::new`). See docs/specs/05-routing.md §5.1.
 pub const R1_MARGIN: f32 = 2.0*0.042;
 
 /// Standard deviation of the per-channel noise added to a flat BGC/white fill, so a line with no
@@ -124,11 +119,9 @@ pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
 // Drive the segmask-aware stretch (`center_and_stretch::compose`). Working values: the user allows
 // tuning when an image shows a problem. See docs/work-state/2026-10-21-trims-and-framing.md.
 
-/// Plan name `FILL_SOURCE_CLEARANCE_PX`; the one distance between the product and the background
-/// the fill may use, in *working*-resolution pixels (scaled at use). The silhouette grown by it is
-/// the product band, copied untouched and never a stretch source, so the stretch never samples a
-/// cuff, edge or tiny shadow hugging the product (grey streak, images 10 and 11).
-/// See docs/work-state/2026-10-21-r1-stretch-rework.md.
+/// Plan name `FILL_SOURCE_CLEARANCE_PX`: the product-to-background distance the fill uses, in
+/// *working*-resolution pixels (scaled at use). The silhouette grown by it is the product band,
+/// never a stretch source. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
 
 /// How fast the product band's edge may move from one line to the next, in pixels per line (1 is a

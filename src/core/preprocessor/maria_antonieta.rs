@@ -1,12 +1,10 @@
-//! Headcutting. Finds a human face in a square sub-section of the optimised image, locates the
-//! philtrum (the dip between the bottom of the nose and the top of the upper lip), and returns the
-//! section with everything above the philtrum removed. The only public entry is [`yxunomei`];
-//! [`preflight`] builds the session at startup. The caller gates on EIX and rebuilds `Prepared`.
+//! Headcutting. Finds a human face in a square sub-section of the optimised image and returns the
+//! section with everything above the philtrum (between nose and upper lip) removed. The only public
+//! entry is [`cut_above_philtrum`]; [`preflight`] builds the session at startup. The caller gates on EIX and
+//! rebuilds `Prepared`.
 //!
-//! The model is YuNet (OpenCV Zoo, BSD-3-Clause), a tiny face detector with five landmarks per
-//! face, embedded encrypted like BiRefNet. Philtrum y = midpoint of the nose y and the mean
-//! mouth-corner y. No face (back of head, non-human image, flat colour) or more than one (user's
-//! rule: never multiple philtra on one image) → `None`; exactly one → cut. Decisions: see
+//! Model: YuNet, a tiny face detector with five landmarks per face. No face, or more than one
+//! (user's rule: never multiple philtra on one image) → `None`. Decisions: see
 //! docs/work-state/2026-10-28-headcuts.md. Embedding: see docs/architecture/05-single-exe.md.
 //! YuNet's input and outputs: see docs/architecture/modules/core-preprocessor-maria-antonieta.md.
 
@@ -23,10 +21,8 @@ static ENC_MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/philtrum.onn
 // PHILTRUM_KEY / PHILTRUM_NONCE, emitted fresh per build by build.rs.
 include!(concat!(env!("OUT_DIR"), "/philtrum_key.rs"));
 
-/// Fixed input square the model runs on. YuNet declares a dynamic input; we pick one size so the
-/// anchor counts are known and the preprocessing is a single plain resize. 320 is YuNet's
-/// documented sweet spot — fast on CPU, enough resolution for a face that already fills a
-/// headcut section.
+/// Side of the fixed input square the model runs on, px. Why fixed, and why 320: see
+/// docs/architecture/modules/core-preprocessor-maria-antonieta.md.
 const INPUT_SIZE: u32 = 320;
 
 /// YuNet default score cutoff. Below this a detection is ignored; faces that miss it are not what
@@ -104,13 +100,10 @@ pub fn preflight() -> Result<(), String> {
 }
 
 /// Headcut on `section`: if exactly one face is detected with a philtrum, return the section
-/// cropped so row 0 of the result sits at the philtrum y (everything above is removed); otherwise
-/// `None` and the caller leaves the picture alone.
-///
-/// `section` is a square sub-section of the optimised image (`Prepared::model_input`), sized by
-/// the caller from the segmask's top third (in model-input coords). See
-/// docs/work-state/2026-10-28-headcuts.md.
-pub fn yxunomei(section: &RgbImage) -> Option<RgbImage> {
+/// cropped so row 0 of the result sits at the philtrum y; otherwise `None` and the caller leaves
+/// the picture alone. `section` is a square sub-section of `Prepared::model_input`, sized by the
+/// caller (model-input coords). See docs/work-state/2026-10-28-headcuts.md.
+pub fn cut_above_philtrum(section: &RgbImage) -> Option<RgbImage> {
     let s = session().ok()?;
     let y = detect_philtrum(s, section)?;
     Some(cut_head(section, y))
@@ -126,15 +119,12 @@ struct Face {
 }
 
 /// Run YuNet on `section` and return the philtrum y in `section` coords. `None` when the model
-/// returns zero or more than one face (back-of-head, non-face image, or multiple people — the
-/// user's rule says never cut in those cases).
+/// returns zero or more than one face (user's rule: never cut then).
 fn detect_philtrum(s: &PhiltrumSession, section: &RgbImage) -> Option<u32> {
     let input_side = INPUT_SIZE;
     let (sw, sh) = section.dimensions();
 
-    // Plain resize to the model's fixed square. YuNet is trained on BGR pixels in 0..255 with no
-    // normalisation, so after resizing we write pixels straight into the CHW buffer with the
-    // channel order swapped (R→2, G→1, B→0).
+    // YuNet takes BGR 0..255 with no normalisation: write straight into CHW, channels swapped.
     let resized = imageops::resize(section, input_side, input_side, imageops::FilterType::Triangle);
     let plane = (input_side * input_side) as usize;
     let mut chw = vec![0f32; 3 * plane];
@@ -152,7 +142,6 @@ fn detect_philtrum(s: &PhiltrumSession, section: &RgbImage) -> Option<u32> {
     let input_values = ort::inputs![s.input_name.as_str() => input].ok()?;
     let outputs = s.session.run(input_values).ok()?;
 
-    // Decode across the three strides. For each stride, read the four tensors by name.
     let mut faces: Vec<Face> = Vec::new();
     let fw = input_side as f32;
     for &stride in &STRIDES {
@@ -209,9 +198,7 @@ fn detect_philtrum(s: &PhiltrumSession, section: &RgbImage) -> Option<u32> {
     }
     let f = &faces[0];
 
-    // Philtrum y = midpoint of nose-y and average mouth-corner-y. YuNet landmarks are
-    // [right_eye, left_eye, nose, mouth_right, mouth_left]; nose y and the two mouth y's bracket
-    // the philtrum.
+    // Philtrum y = midpoint of nose-y and average mouth-corner-y, which bracket it.
     let nose_y = f.landmarks[KP_NOSE][1];
     let mouth_y = (f.landmarks[KP_MOUTH_RIGHT][1] + f.landmarks[KP_MOUTH_LEFT][1]) * 0.5;
     let philtrum_y_model = (nose_y + mouth_y) * 0.5;
@@ -247,8 +234,7 @@ fn extract<'a>(
     Some(data)
 }
 
-/// Standard IoU-based non-max suppression: sort by score descending, keep the top, suppress any
-/// later box whose IoU with the kept one exceeds `iou_threshold`.
+/// Standard IoU non-max suppression at `iou_threshold`, highest score first.
 fn nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
     faces.sort_by(|a, b| {
         b.score

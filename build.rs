@@ -1,12 +1,7 @@
-//! Build-time steps that shape the final exe
-//!
-//! 1. Stamps the Windows app icon (`Pepperoni.ico`, committed at the repo root) onto the binary.
-//!    See docs/architecture/modules/build.md.
-//! 2. Encrypts the embedded ONNX models, one per slot: the plaintext in [`MODEL_DIR`] goes out
-//!    encrypted under a fresh per-build key to `$OUT_DIR/<slot>.onnx.enc`, the key+nonce to
-//!    `$OUT_DIR/<slot>_key.rs`. `src/core/shot_classifier/cipher.rs` is pulled in by path so
-//!    encrypt and decrypt agree. Obfuscation, not secrecy: the key ships in the binary.
-//!    See docs/architecture/modules/build.md.
+//! Build-time steps that shape the final exe: stamp the Windows app icon (`Pepperoni.ico`), and
+//! encrypt each embedded ONNX model in [`MODEL_DIR`] (one slot per model) under a fresh per-build
+//! key, with `src/core/shot_classifier/cipher.rs` pulled in by path so encrypt and decrypt agree.
+//! Obfuscation, not secrecy: the key ships in the binary. See docs/architecture/modules/build.md.
 
 #[allow(dead_code)]
 #[path = "src/core/shot_classifier/cipher.rs"]
@@ -14,9 +9,8 @@ mod cipher;
 
 use std::path::Path;
 
-/// Where the plaintext exports live. One gitignored folder holds every variant
-/// (the 512 fp32 original, the int8 quantizations, anything else being tried);
-/// nothing else in the tree looks for a `.onnx` anywhere but here.
+/// Gitignored folder of every plaintext export (512 fp32 original, int8 quantizations, trials);
+/// nothing in the tree looks for a `.onnx` anywhere else.
 const MODEL_DIR: &str = "models";
 
 /// ONNX for the BiRefNet model in [`MODEL_DIR`] 
@@ -43,8 +37,6 @@ fn main() {
 /// Read the plaintext model named by `plaintext` out of [`MODEL_DIR`], encrypt it under a fresh
 /// key, and emit `$OUT_DIR/<out_stem>.onnx.enc` plus a key module `$OUT_DIR/<out_stem>_key.rs`
 /// that declares `pub const <KEY_PREFIX>_KEY: [u8;32]` and `pub const <KEY_PREFIX>_NONCE: [u8;12]`.
-///
-/// One slot per ONNX model baked into the exe. The key and nonce are fresh per build.
 fn encrypt_slot(plaintext: &str, out_stem: &str, key_prefix: &str) {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
@@ -71,9 +63,8 @@ fn encrypt_slot(plaintext: &str, out_stem: &str, key_prefix: &str) {
         .expect("write key module");
 }
 
-/// A key and nonce unique to this build. Obfuscation-grade entropy: a splitmix64 stream seeded from
-/// the wall clock and pid. It only has to differ from build to build and stay out of source — the
-/// ceiling on this whole scheme is that the key ends up in the binary regardless.
+/// Key and nonce unique to this build: splitmix64 seeded from wall clock and pid. Obfuscation-grade
+/// is enough; it only has to change per build and stay out of source, as the key ships in the exe.
 fn fresh_key_nonce() -> ([u8; 32], [u8; 12]) {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -1,26 +1,15 @@
-//! Part C — re-framing a trimmed no-backdrop / textured scene to a square.
-//!
-//! R1 calls this when the preprocessor trimmed flat letterbox/pillarbox bars round a textured scene
-//! (`preprocessor::optimizer::trim_letterbox`, `Prepared::letterbox`). Such a scene is reframed
-//! **without** R1's stretch, which smears a textured overhang (measured on 268/46).
-//! [`reframe_to_square`] tries, highest first:
-//!
-//! 1. **Crop** a square that keeps the whole subject, no invented pixels: [`square_crop_preserving`].
-//! 2. **Seam-carve** (minimum-energy seam insertion), rejected when the cheapest seams cross too
-//!    much structure (`config::R1_SEAM_CARVE_MAX_SEAM_ENERGY`): [`seam_carve_to_square`].
-//! 3. **White-pad**, the last resort: [`white_pad`].
+//! Part C — re-framing a trimmed no-backdrop / textured scene (`Prepared::letterbox` set) to a
+//! square **without** R1's stretch, which smears a textured overhang. [`reframe_to_square`] tries,
+//! highest first: [`square_crop_preserving`], [`seam_carve_to_square`], [`white_pad`].
+//! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 use crate::core::config::R1_SEAM_CARVE_MAX_SEAM_ENERGY;
 use crate::core::shot_classifier::geometry::Rect;
 use image::{Rgb, RgbImage};
 
 /// Priority 1 — the largest square crop (the shorter frame side) that still contains the whole
-/// `subject` box, centred on the subject and slid inside the frame `w`x`h`.
-///
-/// `None` when the subject is longer than that side on either axis: a square crop then cannot
-/// preserve it, and the caller falls through to seam-carve / white-pad. When the dimensions do fit,
-/// centring on the subject and clamping into the frame always keeps the whole subject inside
-/// (`side >= subject.w` and `side >= subject.h`), so a crop is returned.
+/// `subject` box, centred on the subject and slid inside the frame `w`x`h`. `None` when the subject
+/// is longer than that side on either axis.
 pub fn square_crop_preserving(subject: Rect, w: u32, h: u32) -> Option<Rect> {
     let side = w.min(h);
     if subject.w > side || subject.h > side {
@@ -93,11 +82,10 @@ fn min_vertical_seam(e: &[f32], cw: usize, h: usize) -> Vec<usize> {
     seam
 }
 
-/// Find the `k` lowest-energy vertical seams in `img`, in ORIGINAL column coordinates, and the mean
-/// per-pixel energy over them. Seams are found by repeatedly removing the current minimum seam from
-/// a working copy (so the `k` are distinct, not the same cheap seam `k` times — Avidan–Shamir), each
-/// seam's energy read from the original map so the gate is stable. `None` when the image is too
+/// Find the `k` lowest-energy vertical seams in `img`, distinct, in ORIGINAL column coordinates, and
+/// the mean per-pixel energy over them, read from the original map. `None` when the image is too
 /// narrow to carve `k` seams.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn k_lowest_vertical_seams(img: &RgbImage, k: usize) -> Option<(Vec<Vec<usize>>, f32)> {
     let (w0, h) = (img.width() as usize, img.height() as usize);
     if k == 0 || w0 < 2 {
@@ -204,14 +192,10 @@ fn grow_height(img: &RgbImage, add: usize) -> Option<RgbImage> {
     Some(transpose(&grown))
 }
 
-/// Priority 2 — seam-carve `src` out to a `target`-pixel square, accepted only when the perceptual
-/// quality gate passes on every round.
-///
-/// Only *extension* is handled (both axes at or below `target`); a larger axis is the crop /
-/// white-pad case, so that returns `None`. Each axis grows in rounds of at most its current length
-/// so no single round more than doubles it (seam insertion past ~2x degrades even on clean scenes).
-/// Any round whose cheapest seams average above `config::R1_SEAM_CARVE_MAX_SEAM_ENERGY` fails the
-/// whole carve, and the caller falls through to [`white_pad`].
+/// Priority 2 — seam-carve `src` out to a `target`-pixel square. `None` when an axis is above
+/// `target`, or when a round's cheapest seams average above `config::R1_SEAM_CARVE_MAX_SEAM_ENERGY`.
+/// No round more than doubles an axis (seam insertion degrades past ~2x).
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub fn seam_carve_to_square(src: &RgbImage, target: u32) -> Option<RgbImage> {
     let (w, h) = src.dimensions();
     if w > target || h > target {
@@ -231,9 +215,7 @@ pub fn seam_carve_to_square(src: &RgbImage, target: u32) -> Option<RgbImage> {
     (img.width() == target && img.height() == target).then_some(img)
 }
 
-/// The Part C route decision for a trimmed textured scene: reframe to a square **without** R1's
-/// stretch, in priority order — a subject-preserving crop, else a quality-gated seam-carve, else a
-/// white pad. Pure; R1 calls it when `Prepared::letterbox` is set.
+/// Reframe a trimmed textured scene to a square: crop, else seam-carve, else white pad. Pure.
 pub fn reframe_to_square(src: &RgbImage, subject: Rect) -> RgbImage {
     let (w, h) = src.dimensions();
     if let Some(keep) = square_crop_preserving(subject, w, h) {
@@ -245,8 +227,7 @@ pub fn reframe_to_square(src: &RgbImage, subject: Rect) -> RgbImage {
     white_pad(src)
 }
 
-/// Priority 3 — centre `src` on a square white canvas of its longer side. The last resort, used
-/// only when neither a preserving crop nor an accepted seam-carve is available.
+/// Priority 3, the last resort — centre `src` on a square white canvas of its longer side.
 pub fn white_pad(src: &RgbImage) -> RgbImage {
     let (w, h) = src.dimensions();
     let side = w.max(h);

@@ -29,16 +29,26 @@ Detail moved out of source comments that had no other home in the docs
 |---|---|
 | [app.md](modules/app.md) | `src/app/` (progress footer, one write per frame) |
 | [build.md](modules/build.md) | `build.rs` (icon, fixed encrypted names, symmetric cipher) |
+| [core.md](modules/core.md) | `src/core/mod.rs`, `options.rs` (how `Options` travels) |
+| [core-config.md](modules/core-config.md) | `src/core/config.rs` (where each group of constants is explained) |
 | [core-exporter.md](modules/core-exporter.md) | `src/core/exporter/` (save then move, resize) |
-| [core-preprocessor-maria-antonieta.md](modules/core-preprocessor-maria-antonieta.md) | headcut: YuNet input and outputs |
-| [core-preprocessor-optimizer.md](modules/core-preprocessor-optimizer.md) | the letterbox / bar detector |
-| [core-processor-routes.md](modules/core-processor-routes.md) | R2 `crop_square`, R3 `fallback` |
-| [core-processor-routes-center-and-stretch.md](modules/core-processor-routes-center-and-stretch.md) | R1: why the background is not validated |
-| [core-shot-classifier-birefnet.md](modules/core-shot-classifier-birefnet.md) | tensors, `DeformConv` rewrite, session memory, `logit` |
+| [core-framing.md](modules/core-framing.md) | `src/core/framing.rs` (padding vs backdrop, `border_colour`, `deepen_peel`) |
+| [core-preprocessor.md](modules/core-preprocessor.md) | `src/core/preprocessor/mod.rs` (ICC: sRGB check, tintbox conversion) |
+| [core-preprocessor-maria-antonieta.md](modules/core-preprocessor-maria-antonieta.md) | headcut: YuNet input and outputs, why 320 |
+| [core-preprocessor-optimizer.md](modules/core-preprocessor-optimizer.md) | why the colour balance, the trims, the letterbox / bar detector |
+| [core-processor-routes.md](modules/core-processor-routes.md) | `processor/mod.rs`, `routes/mod.rs`, R2 `crop_square`, R3 `fallback` |
+| [core-processor-routes-center-and-stretch.md](modules/core-processor-routes-center-and-stretch.md) | R1: silhouette, the stretch, grain, seam-carve reframe, flat fill |
+| [core-runtime.md](modules/core-runtime.md) | `src/core/runtime.rs` (DirectML preload) |
+| [core-shot-classifier.md](modules/core-shot-classifier.md) | `src/core/shot_classifier/` wiring, `gate`, `cipher`, `gpu_adapters` |
+| [core-shot-classifier-birefnet.md](modules/core-shot-classifier-birefnet.md) | tensors, `DeformConv` rewrite, session memory, `logit`, loading |
+| [core-shot-classifier-geometry.md](modules/core-shot-classifier-geometry.md) | who goes through `EdgeView`, `Grid` implementors |
+| [core-shot-classifier-plan.md](modules/core-shot-classifier-plan.md) | R1's square: one rule for every edge count, when it is `None` |
 | [core-shot-classifier-refine.md](modules/core-shot-classifier-refine.md) | graze test, trimap run walk |
-| [core-shot-classifier-route.md](modules/core-shot-classifier-route.md) | the current R1/R2/R3 decision table |
-| [core-shot-classifier-sampling.md](modules/core-shot-classifier-sampling.md) | summed-area table for the mask window |
+| [core-shot-classifier-route.md](modules/core-shot-classifier-route.md) | the current R1/R2/R3 decision table, `plan_square` |
+| [core-shot-classifier-sampling.md](modules/core-shot-classifier-sampling.md) | summed-area table for the mask window, the colour distance |
+| [core-shot-classifier-segmentation.md](modules/core-shot-classifier-segmentation.md) | why the `Mask` is not pixel-accurate |
 | [core-shot-classifier-shotcode.md](modules/core-shot-classifier-shotcode.md) | the `BG` tag still to come; `mask_too_small` |
-| [core-trace.md](modules/core-trace.md) | stage numbers and colour legends |
+| [core-trace.md](modules/core-trace.md) | stage numbers, colour legends, files per image |
 | [examples.md](modules/examples.md) | `run_dir` outputs, shot-code fields, runtime path |
-| [tests.md](modules/tests.md) | retired detection / geometry tests |
+| [main.md](modules/main.md) | `src/main.rs` (command line) |
+| [tests.md](modules/tests.md) | what `tests/` covers |

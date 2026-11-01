@@ -58,19 +58,19 @@ genuinely different: the subject's box *is* the frame, so there is nowhere legal
 *and* no background band anywhere to stretch from. Both of R1's mechanisms fail at once, which is
 what makes R2 a route rather than a branch.
 
-**Worked example — 28.jpg.** 667×1000, model with the head cut off at the top, EIX `1000`.
-The mask measures 474×986 flush against the top edge.
+**Worked example — 28.jpg.** 980×1470, model seen from the back, the skirt running off the
+bottom, EIX `0010`. The mask measures 692×1416 flush against the bottom edge.
 
 ```
-vertical need   = 986 × 1.042 = 1027    # one free side (the bottom): it gets 4.2%, not the two-sided 8.4%
-horizontal need = 474 × 1.084 =  514
-side            = 1027
+vertical need   = 1416 × 1.042 = 1475   # one free side (the top): it gets 4.2%, not the two-sided 8.4%
+horizontal need =  692 × 1.084 =  750
+side            = 1475
 ```
 
-Top pinned at y=0, so all 41px of vertical slack lands under the feet: 14px of real floor already
-in frame plus 27px of new canvas, stretched from the band below her feet. Horizontally the square
-is centred on the mask and overhangs both sides, filled from the studio paper. The cut-off head is
-reproduced exactly — never stretched, never cropped.
+Bottom pinned at y=1470, so all 59px of vertical slack lands above her head: 54px of real backdrop
+already in frame plus 5px of new canvas, stretched from the band above her head. Horizontally the
+square is centred on the mask and overhangs both sides (236px left, 259px right), filled from the
+studio paper. The cut-off skirt is reproduced exactly — never stretched, never cropped.
 
 **Impossible case.** An axis blocked at both ends whose square still comes up short — a wide
 subject bleeding off the top and bottom of a shallow frame. Neither vertical side may move and the

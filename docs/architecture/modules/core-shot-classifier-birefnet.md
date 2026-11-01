@@ -35,6 +35,15 @@ earlier comment in the code blamed Level3 for an OOM during session init; that w
 container, not a property of the graph.
 
 ## Thresholding in logit space
-`logit` turns the mask threshold into a logit once per image. Thresholding each pixel's sigmoid
-cost an `exp` per *output* pixel, near a million of them at working resolution. At the default 0.5
-the two forms agree exactly, so the shipped mask is unchanged pixel for pixel.
+`logit` turns the mask threshold into a logit once per image. A sigmoid is monotonic, so
+thresholding the raw logit answers the same question as thresholding the sigmoid, for one `ln` per
+image instead of an `exp` per *output* pixel (near a million of them at working resolution). At the
+default 0.5 the two forms agree exactly (`sigmoid(0)` is 0.5 with no rounding), so the shipped mask
+is unchanged pixel for pixel.
+
+## Loading the runtime and the model
+* `init_runtime` checks the dylib path before `ort` is touched, so a missing runtime gives the
+  operator a sentence naming the file instead of a stack trace. The dynamic loading is `Cargo.toml`'s
+  `ort` entry (`load-dynamic`); when the function goes is in [5. Single hardened exe](../05-single-exe.md).
+* `load_from_file` exists for the `examples/` dev harness, to run *other* exports (a re-quantized
+  model, a different side) against the same session settings.

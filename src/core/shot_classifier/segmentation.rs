@@ -1,19 +1,11 @@
-//! Segmentation types.
-//!
-//! [`SegmentationModel`] deliberately abstracts over the actual BiRefNet
-//! ONNX inference call. Everything else here depends only on the
-//! [`Mask`]/[`Instance`] shapes, not on how they were produced.
+//! Segmentation types. [`SegmentationModel`] hides the BiRefNet ONNX call; everything else depends
+//! only on the [`Mask`]/[`Instance`] shapes. See docs/architecture/02-modules-shot-classifier.md.
 
 use super::geometry::{Grid, Rect};
 
-/// A binary instance mask in *working resolution* coordinates — the preprocessor's output space
-/// (longest side `config::WORKING_SIZE`), which is what the segmentation model ran on.
-///
-/// BiRefNet works at one fixed square side, read from the export's input metadata at load time
-/// (`birefnet::input_size` rejects a dynamic axis), so it tracks whichever variant `build.rs` baked
-/// in. The working image is squashed to that square and the mask resampled back; that round trip is
-/// why the mask boundary is not pixel-accurate, and why the pass-2 refinement in [`super::refine`]
-/// exists at all.
+/// A binary instance mask in *working-resolution* pixels (longest side `config::WORKING_SIZE`).
+/// Its boundary is not pixel-accurate, which is why [`super::refine`] exists. See
+/// docs/architecture/modules/core-shot-classifier-segmentation.md.
 #[derive(Debug, Clone)]
 pub struct Mask {
     pub width: u32,
@@ -75,11 +67,8 @@ impl Mask {
         Mask { width: w, height: h, data }
     }
 
-    /// Nearest-neighbor upsamples the sub-region `region` (in this
-    /// mask's own coordinate space) to a `target_w x target_h` mask.
-    /// Used to project the working-resolution mask into a full
-    /// original-resolution crop's coordinate space as a starting point
-    /// for the trimap — not claimed to be pixel-accurate on its own.
+    /// Nearest-neighbour upsample of `region` (this mask's coordinates) to `target_w x target_h`:
+    /// the trimap's starting point in a full-resolution crop, not pixel-accurate on its own.
     pub fn upsample_region_nearest(&self, region: Rect, target_w: u32, target_h: u32) -> Mask {
         let target_w = target_w.max(1);
         let target_h = target_h.max(1);
@@ -126,21 +115,15 @@ pub struct Instance {
 pub trait SegmentationModel {
     /// `image` is the preprocessor's working-resolution RGB output.
     ///
-    /// Returns `Err` when no verdict could be produced — a failed
-    /// inference, an unusable model output. That is a distinct outcome
-    /// from "segmented, and the subject touches no edge", and callers
-    /// route on the difference: a batch keeps going and the image falls
-    /// to its no-verdict route rather than the whole run panicking.
+    /// `Err` means no verdict (failed inference, unusable output), not "touches no edge": the image
+    /// takes its no-verdict route and the batch goes on, no panic. See
+    /// docs/architecture/01-why-classification-is-optional.md.
     fn segment(&self, image: &image::RgbImage) -> Result<Vec<Instance>, String>;
 }
 
-/// A model that is shown a crop of the frame but answers for the whole frame.
-///
-/// The optimiser hands the model only the part of the working image that holds the product
-/// (`crop`, in working-resolution coordinates). The model's mask comes back the size of that crop;
-/// this puts it back where it belongs on a blank canvas the size of the whole working image, with
-/// the full frame as the box, so the gate, refinement and routes see the same kind of mask as when
-/// the model is shown the whole frame.
+/// A model that is shown a crop of the frame but answers for the whole frame: the mask is pasted
+/// back at `crop` (working-resolution pixels) on a blank working-size canvas, box = full frame.
+/// See docs/architecture/01-why-two-resolutions.md.
 pub struct CroppedModel<'a, M: SegmentationModel> {
     model: &'a M,
     /// Width and height of the working image the crop was cut from.

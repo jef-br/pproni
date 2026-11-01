@@ -7,9 +7,9 @@
 //! four of spec §5's five bleed behaviours, which is why they are not branches of
 //! [`super::crop_square`]; only the full bleed stays out. See docs/specs/05-routing.md §5.1.
 //!
-//! The subject is the mask's own bounding box. **No saliency here**: the saliency-weighted centre of
-//! gravity is [`super::crop_square`]'s, where a full bleed leaves no background to anchor against.
-//! The background is trusted, unvalidated on purpose, from the grown [`Silhouette`] to the border. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
+//! The subject is the mask's own bounding box, **no saliency**. The background is trusted,
+//! unvalidated on purpose, from the grown [`Silhouette`] to the border.
+//! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 pub mod compose;
 pub mod extend;
@@ -22,12 +22,9 @@ use crate::core::shot_classifier::Mask;
 use image::RgbImage;
 
 /// The product silhouette, grown outward, as the span it covers on every row and every column of
-/// the *original* image: the product band, copied untouched and never a stretch source. Growing it
-/// keeps a cuff, an edge or a tiny shadow hugging the product out of the stretch (plan A.2).
-///
-/// Built once from the working-resolution mask, scaled up, then grown by `grow` pixels in every
-/// direction (a disc, not a square). Lines the grown shape misses take the span of the nearest line
-/// that has one, so the band changes smoothly instead of jumping between silhouette and bounding box.
+/// the *original* image: the product band, copied untouched and never a stretch source (plan A.2).
+/// Built from the working-resolution mask, grown by a disc of `grow` pixels.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub struct Silhouette {
     /// Indexed by original-image `y`: the columns `[lo, hi)` the grown silhouette covers.
     pub row_x: Vec<(i64, i64)>,
@@ -44,13 +41,8 @@ impl Silhouette {
 }
 
 /// Per row and per column of the original, the span `(lo, hi)` (inclusive) the mask covers, or `None`
-/// where it covers nothing.
-///
-/// The mask is at most `WORKING_SIZE` on its longest side and the original can be many times that, so
-/// the mask is read once, in its own pixels, and the answer is carried over to the original's lines.
-/// An original pixel `ox` reads mask column `mx_of(ox)`, which never goes down as `ox` goes up, so the
-/// originals that read one mask column are one unbroken run: a mask row's span is the first original
-/// of the run of its lowest set column and the last original of the run of its highest.
+/// where it covers nothing. Reads the mask once, in its own pixels, not once per original pixel.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn spans_of(mask: &Mask, orig_w: u32, orig_h: u32) -> (Vec<Option<(i64, i64)>>, Vec<Option<(i64, i64)>>) {
     let (mw, mh) = (mask.width as usize, mask.height as usize);
     if mw == 0 || mh == 0 {
@@ -97,12 +89,9 @@ fn spans_of(mask: &Mask, orig_w: u32, orig_h: u32) -> (Vec<Option<(i64, i64)>>, 
 }
 
 /// Grow per-line spans `(lo, hi)` (inclusive) by a disc of radius `r` and return them as `[lo, hi)`.
-///
-/// A line's grown span is the union of the spans of the lines within `r` of it, each widened by the
-/// disc's reach at that distance. Lines the disc does not reach take the span of the nearest line
-/// that has one (the earlier one on a tie); with no span anywhere they come out empty. Last, no edge
-/// is allowed to move faster than `slope` pixels per line: an edge that would is pulled outward from
-/// the line where it jumps, so the span only ever widens.
+/// Lines the disc misses take the nearest grown span (the earlier one on a tie), or `(0, 0)` with
+/// none anywhere. No edge moves faster than `slope` pixels per line; the span only ever widens.
+/// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn grow_spans(spans: &[Option<(i64, i64)>], r: i64, slope: i64) -> Vec<(i64, i64)> {
     let n = spans.len() as i64;
     let reach: Vec<i64> = (0..=r).map(|d| ((r * r - d * d) as f64).sqrt().floor() as i64).collect();
@@ -179,9 +168,8 @@ fn working_scale(prep: &Prepared) -> f32 {
         .max(1.0)
 }
 
-/// Carry out the job the classifier chose: reframe the trimmed picture of a textured scene, or cut
-/// the planned square and stretch the background out to fill it. Which of the two, and where the
-/// square goes, was decided before this is called.
+/// Carry out the job the classifier chose: reframe a trimmed textured scene, or stretch the planned
+/// square. Nothing is decided here.
 pub fn apply(prep: &Prepared, shot: Shot<'_>, job: R1Job) -> RgbImage {
     match job {
         R1Job::Reframe { keep, subject } => {

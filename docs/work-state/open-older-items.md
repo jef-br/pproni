@@ -11,5 +11,3 @@
 * **Removed 2026-10-29 (user):** the ImageNet counter-balance (`counter_balance_for_birefnet`, commit
   7e5ed75). It squeezed the model input and gave empty masks on the 104051881/104051882 boot photos
   (0% with it, 7-10% without). The model now sees the colour-balanced crop directly.
-* **Stale (pre-512, int8).** The "change one input at a time on 102454579_det5 and read int8's best
-  score" experiment — int8-specific, no longer relevant under 512.f

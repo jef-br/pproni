@@ -1,13 +1,6 @@
-//! R1 step 1 — where the square goes. Pure geometry, no pixels.
-//!
-//! Per axis: each free side takes half the margin (4.2% of the subject's extent), an axis blocked on
-//! both sides needs exactly `extent`, and the square's side is the larger of the two needs. The slack
-//! goes to the free sides (split when both are free); a blocked side never moves. A 0-edge subject is
-//! the degenerate case, not a separate one. See docs/specs/05-routing.md §5.1.
-//!
-//! Deriving the side from the subject rather than from the image is what makes the square able to
-//! reach past a border — the case R1 exists for, not a failure mode. A side inside the image crops
-//! there; a side past it leaves an [`Overhang`] for the fill to cover.
+//! R1 step 1 — where the square goes. Pure geometry, no pixels. Sized and placed per axis from the
+//! subject; a blocked (bled) side never moves. See docs/specs/05-routing.md §5.1.
+//! See docs/architecture/modules/core-shot-classifier-plan.md.
 
 use crate::core::shot_classifier::{geometry::Rect, Edge};
 
@@ -21,7 +14,7 @@ pub struct Pins {
 }
 
 impl Pins {
-    /// Nothing blocked — the free-standing subject R1 was first written for.
+    /// Nothing blocked: a free-standing subject.
     pub const NONE: Pins = Pins { top: false, bottom: false, left: false, right: false };
 
     pub fn from_edges(edges: &[Edge]) -> Pins {
@@ -56,13 +49,9 @@ pub struct Overhang {
 }
 
 impl SquarePlan {
-    /// Size the square and place it, given which sides are blocked.
-    ///
-    /// `None` when an axis is blocked at both ends and still comes up short — the *other* axis
-    /// demanded a bigger square, and there is nowhere legal to put the difference. Growing a
-    /// blocked axis means inventing background on top of a subject that continues off-frame, and
-    /// splitting the difference anyway would stretch the product. R1 has no answer, so it says so
-    /// and the caller frames the image safely instead.
+    /// Size the square and place it, given which sides are blocked. `None` when an axis blocked at
+    /// both ends still comes up short (the *other* axis wants a bigger square); the caller then
+    /// frames the image safely. See docs/architecture/modules/core-shot-classifier-plan.md.
     pub fn new(subject: Rect, margin: f32, pins: Pins) -> Option<SquarePlan> {
         // `margin` is the share for a subject with both sides of an axis free; each free side takes
         // half of it, so one free side gets 4.2% and two get 8.4%.
@@ -172,7 +161,7 @@ mod tests {
 
     #[test]
     fn a_subject_filling_the_frame_overhangs_on_all_four_sides() {
-        // Free-standing but tight: no cap on the stretch, by decision.
+        // Free-standing but tight: no cap on the stretch. See docs/work-state/2026-10-23-one-stretch-function.md.
         let p = plan(rect(0, 0, 1000, 1000), Pins::NONE);
         assert_eq!(p.side, 1084);
         assert_eq!(p.overhang(1000, 1000), Overhang { top: 42, bottom: 42, left: 42, right: 42 });
@@ -180,7 +169,7 @@ mod tests {
 
     #[test]
     fn one_blocked_side_gives_the_free_side_its_own_margin_of_4_2_percent() {
-        // 28.jpg: 667x1000 frame, mask 474x987 flush against the top.
+        // JB: Real numbers of an old image, image now gone. 667x1000 frame, mask 474x987 flush against the top.
         let p = plan(rect(106, 0, 474, 987), Pins { top: true, ..Pins::NONE });
         assert_eq!(p.side, 1028, "987 * 1.042 — a single free side gets 4.2%, not the two-sided 8.4%");
         assert_eq!(p.y, 0, "the blocked top does not move");

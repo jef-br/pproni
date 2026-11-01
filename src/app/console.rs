@@ -20,8 +20,7 @@ pub fn init() {
     }
 }
 
-/// Wipe the screen and park the cursor at the top-left, so each screen replaces the one before it
-/// rather than scrolling underneath it.
+/// Wipe the screen, cursor to top-left: each screen replaces the last instead of scrolling.
 pub fn clear() {
     print!("\x1b[2J\x1b[H");
 }
@@ -40,8 +39,8 @@ pub fn ui_language() -> Lang {
     Lang::from_code(code)
 }
 
-/// A `file://` URL for `path`, but only under Windows Terminal, which supports OSC-8 hyperlinks.
-/// Classic conhost gets `None`, and so a plain path — no risk of a stray escape showing.
+/// A `file://` URL for `path` under Windows Terminal (OSC-8 links). `None` on classic conhost, so
+/// it gets a plain path and no stray escape.
 pub fn folder_url(path: &Path) -> Option<String> {
     if std::env::var_os("WT_SESSION").is_none() {
         return None;
@@ -62,8 +61,8 @@ pub fn pause() {
     }
 }
 
-/// Read lines until one is `Y`/`y` (true) or `N`/`n` (false), each followed by Enter. Anything else
-/// is asked for again. If stdin closes, the answer is no rather than waiting forever.
+/// Read lines until one is `Y`/`y` (true) or `N`/`n` (false); anything else asks again. A closed
+/// stdin answers no.
 pub fn ask_yes_no() -> bool {
     loop {
         let mut line = String::new();

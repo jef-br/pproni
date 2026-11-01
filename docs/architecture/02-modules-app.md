@@ -5,7 +5,7 @@
 | Module | Surface | Notes |
 |---|---|---|
 | `app::batch` | `run(input, output, backup, footer, lang) -> Summary`, `Summary` | rayon fan-out, one level of subfolder recursion; drives `progress` |
-| `app::progress` | `Progress`, `new(total, footer, lang)`, `tick` | in-place unicode bar, always 40 cells with the `NN%` drawn over them; throttled ~15 Hz via non-blocking `try_lock`; self-disables when stdout is not a TTY |
+| `app::progress` | `Progress`, `new(total, footer, lang)`, `tick` | in-place unicode bar, always 50 cells with the `NN%` drawn over them; throttled ~15 Hz via non-blocking `try_lock`; self-disables when stdout is not a TTY |
 | `app::shell` | `run()` | Windows double-click flow: desktop `PPRONI-INPUT` → `PPRONI-OUTPUT`, originals → `PPRONI-BACKUP`. Draws the three screens |
 | `app::header` | `print()` | Windows-only; hand-tuned banner (block logo + name + tagline), same on all three screens |
 | `app::theme` | `WIDTH`, the palette, `rule`, `callout`, `slug` | 24-bit ANSI matching the design hex; owns the frame every screen is drawn in |

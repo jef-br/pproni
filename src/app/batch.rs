@@ -1,7 +1,5 @@
-//! Batch processing: enumerate inputs and process each; core's Exporter moves the source into the
-//! backup folder on success and leaves failures in place. Recurses one level into subfolders of
-//! `input` — each becomes a same-named subfolder of both `output` and `backup` — matching the
-//! folder-bootstrap flow in `docs/diagrams/JBA2B.drawio.svg`.
+//! Batch processing: enumerate the images in `input` and its direct subfolders, and process each.
+//! Matches the folder-bootstrap flow in `docs/diagrams/JBA2B.drawio.svg`.
 
 use super::i18n::Lang;
 use super::progress::Progress;
@@ -17,17 +15,16 @@ pub struct Summary {
     pub ok: usize,
     pub failed: usize,
     pub seconds: f64,
-    /// One line per failed file, collected rather than printed: the progress bar owns the screen
-    /// while the batch runs, so the shell reports these once it is done.
+    /// One line per failed file, collected not printed: the progress bar owns the screen until the
+    /// shell reports them.
     pub failures: Vec<String>,
 }
 
 const SUPPORTED: &[&str] = &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"];
 
-/// Process every supported image in `input` into `output`, in parallel across cores. Successfully
-/// processed originals are moved to `backup`; failures are left in `input` untouched. `footer` is
-/// the block of lines drawn under the progress bar and held in place for the whole run. `options`
-/// is the one set of per-run settings, handed unchanged to every file.
+/// Process every supported image in `input` into `output`, in parallel. Originals of successes move
+/// to `backup` (core's exporter does it); failures stay in `input` untouched. `footer`: the lines
+/// held under the progress bar for the whole run. `options` goes unchanged to every file.
 pub fn run(
     input: &Path,
     output: &Path,
@@ -73,11 +70,9 @@ pub fn run(
     }
 }
 
-/// Enumerate (source, destination, backup) triples. Images directly in `input` land directly in
-/// `output` and `backup`; images in a direct subfolder of `input` land in a same-named subfolder of
-/// each — one level of recursion, no deeper. A subfolder that contains no images gets no output or
-/// backup counterpart. The backup keeps the original file name and extension; only the output is
-/// renamed to `.jpg`.
+/// (source, destination, backup) triples. Images in `input` map into `output` and `backup`; images
+/// in a direct subfolder map into a same-named subfolder of each (no deeper). A subfolder with no
+/// images gets no counterpart. The backup keeps the original name; only the output becomes `.jpg`.
 fn collect(input: &Path, output: &Path, backup: &Path) -> Vec<(PathBuf, PathBuf, PathBuf)> {
     let mut jobs = Vec::new();
     let Ok(entries) = std::fs::read_dir(input) else {

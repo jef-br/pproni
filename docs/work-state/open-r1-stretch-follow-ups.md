@@ -11,8 +11,7 @@
   the user meant.** A dedicated planning conversation is needed — walk through the user's
   definition of lifestyle/ambiance (what the image looks like, what the segmask + border
   samples will show, what the desired output is) and agree on the routing *before* any code.
-* **Weak spots of the 2026-10-21 rework:** gone with the even stretch (2026-10-23). Not tuned yet:
-  clearance (20 working px).
+* **Not tuned yet:** clearance (20 working px).
 * **Telea / fast-marching inpaint** — kept on standby. `center_and_stretch::inpaint::fill_segment` now
   only fills lines with no background at all (flat BGC/white). If a wider inpainter is needed it
   slots in there.

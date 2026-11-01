@@ -5,7 +5,7 @@
 Detail moved out of the `src/core/preprocessor/maria_antonieta.rs` comments. The headcut decisions,
 the caller's gate and the section size are
 [work state 2026-10-28: headcuts](../../work-state/2026-10-28-headcuts.md); how the model is embedded
-is [5. Single hardened exe](../05-single-exe.md). The public entry in the code is `yxunomei` (those
+is [5. Single hardened exe](../05-single-exe.md). The public entry in the code is `cut_above_philtrum` (those
 pages still call it `cut_above_philtrum`).
 
 ## YuNet's input and outputs
@@ -18,3 +18,9 @@ Verified against `face_detection_yunet_2026may.onnx`:
 * 12 outputs grouped as `{cls, obj, bbox, kps}` × strides `{8, 16, 32}`. `cls_*` and `obj_*` are
   already sigmoid-ed in the graph; `bbox_*` and `kps_*` are raw regression tensors.
 * One anchor per spatial cell. Final score = `cls[i] * obj[i]`.
+
+## Why `INPUT_SIZE` is 320
+
+YuNet declares a dynamic input; the module picks one size so the anchor counts are known and the
+preprocessing is a single plain resize. 320 is YuNet's documented sweet spot: fast on CPU, and enough
+resolution for a face that already fills a headcut section.
