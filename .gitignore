@@ -28,3 +28,5 @@ __pycache__/
 
 # Analysis images: local only (some are product photos; the repo is public)
 docs/analysis/**/images/
+JB headcut images/*.jpg
+JB cuts back only/*.jpg
