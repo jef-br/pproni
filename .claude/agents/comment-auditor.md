@@ -16,7 +16,7 @@ For each file, read `git diff <base> -- <file>` and check every removed or short
    other words (say where).
 2. **Right pointer.** The doc named says what the removed text said, not just the same topic.
 3. **Kept what must stay.** No contract, unit, owner tag ("user's call", "starting value"),
-   trap-at-the-line, `jbpair`/`jbcomplete`, `SAFETY:` or `TODO` was moved out.
+   trap-at-the-line, `SAFETY:` or `TODO` was moved out.
 4. **Code untouched.** Check 1 of the tool passed; also no `///` left dangling.
 5. **Module pages** follow the rule's form and are not a second copy of an existing doc.
 6. **Size list:** for each over-size block, is it justified (a real contract) or should it shrink?

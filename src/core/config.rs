@@ -130,6 +130,60 @@ pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
 /// See docs/work-state/2026-10-21-fixes-after-review.md.
 pub const R1_BAND_SLOPE_PX_PER_LINE: u32 = 1;
 
+// ---- R1 · flat background: the stretch and the edge gradients -----------------------------------
+//
+// `center_and_stretch::flatness` decides whether the background is flat. On a flat one the stretch
+// starts from the subject's box and `center_and_stretch::gradients` fades the invented edges into one
+// flat colour; on a textured one neither happens. Reuses `GATE_MARGIN_PX`, `REFINE_NARROW_BAND_PX`,
+// `R1_MARGIN` and `R1_FILL_SOURCE_CLEARANCE_WORKING_PX`.
+// See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// Side of one block of the flatness measure, in working-resolution pixels (the mask's own size).
+pub const R1_FLAT_BLOCK_PX: u32 = 24;
+
+/// A block is rough when the standard deviation of its pixels' luma, after the slow changes are taken
+/// out, is above this (0..255). Slow changes are what a Gaussian of `R1_FLAT_SLOW_SIGMA` keeps.
+pub const R1_FLAT_BLOCK_STD: f32 = 2.0;
+
+/// Sigma, in working-resolution pixels, of the Gaussian whose result counts as a slow change.
+pub const R1_FLAT_SLOW_SIGMA: f32 = 8.0;
+
+/// A block counts only when no mask pixel lies within this many working-resolution pixels of it: the
+/// clearance round the product plus 3 px, so the product's own edge never reads as texture.
+pub const R1_FLAT_BLOCK_GAP_PX: u32 = R1_FILL_SOURCE_CLEARANCE_WORKING_PX + 3;
+
+/// The background is flat when at most this share of the counted blocks is rough. Measured on the core
+/// set: the images that should be flat reach 0.05 at most, the textured ones start at 0.20.
+pub const R1_FLAT_ROUGH_SHARE_MAX: f32 = 0.10;
+
+/// The bottom gradient reaches full colour this share of the subject box's height below the box
+/// (at least `GATE_MARGIN_PX`, at most the border). The user's value, from the 104388851 targets.
+pub const R1_FLAT_EDGE_FADE_SHARE: f32 = 0.25;
+
+// ---- R1 · grazed edges: the second test and the patch fill -------------------------------------
+//
+// `center_and_stretch::grazes` leaves the lines the product grazes unstretched. A flat edge fills them
+// with a plain colour or ramp; any other edge hands them to `center_and_stretch::patch`.
+// See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// Second test, the edge counts as flat (no variance) when its outermost pixel line, safe lines only,
+/// spans at most this many levels (0..255) between its 5th and 95th percentile. 3 is the proposal of
+/// 2026-11-18, not yet confirmed by the user; the cores' flat edges measure 0 to 13.
+pub const R1_GRAZE_FLAT_TOLERANCE: u32 = 3;
+
+/// Side of the patch the fill copies, in canvas pixels (odd).
+pub const R1_PATCH_PX: usize = 11;
+
+/// How far from a gap the fill looks for source patches, in canvas pixels.
+pub const R1_PATCH_SEARCH_HALO_PX: usize = 500;
+
+/// How many random source patches are tried per target patch, besides the offsets of the last patches.
+pub const R1_PATCH_CANDIDATES: usize = 4000;
+
+/// A gap's pixel is dropped from the patch context this many canvas pixels round the product (its own
+/// anti-aliased edge).
+pub const R1_PATCH_PRODUCT_EDGE_PX: u32 = 2;
+
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
 //
 // A preprocessor-stage primitive, upstream of the mask. Working values, tuned only when an image shows a problem.

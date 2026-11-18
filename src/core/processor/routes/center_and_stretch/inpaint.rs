@@ -21,10 +21,22 @@ pub fn fill_segment(
     right_ctx: Option<Rgb<u8>>,
     bgc: Option<Rgb<u8>>,
 ) {
+    fill_segment_with_noise(out, left_ctx, right_ctx, bgc, config::R1_INPAINT_NOISE_SIGMA);
+}
+
+/// [`fill_segment`] with the noise amplitude given. `0.0` adds none: one colour on both sides stays that
+/// exact colour, two colours give a plain ramp. R1 uses that on a flat background, where noise would show
+/// as stripes (the noise is seeded by the two colours, so a flat wall gives the same pattern on every line).
+pub fn fill_segment_with_noise(
+    out: &mut [Rgb<u8>],
+    left_ctx: Option<Rgb<u8>>,
+    right_ctx: Option<Rgb<u8>>,
+    bgc: Option<Rgb<u8>>,
+    noise_sigma: f32,
+) {
     if out.is_empty() {
         return;
     }
-    let noise_sigma = config::R1_INPAINT_NOISE_SIGMA;
     match (left_ctx, right_ctx) {
         (Some(a), Some(b)) => lerp_fill(out, a, b, noise_sigma),
         (Some(a), None) => flat_fill(out, a, noise_sigma),
@@ -123,6 +135,20 @@ mod tests {
                 assert!((0..=210).contains(&v), "channel out of range: {v}");
             }
         }
+    }
+
+    #[test]
+    fn with_no_noise_one_colour_stays_exact_and_two_colours_give_a_plain_ramp() {
+        let c = Rgb([120, 130, 140]);
+        let mut out = vec![Rgb([0, 0, 0]); 50];
+        fill_segment_with_noise(&mut out, Some(c), Some(c), None, 0.0);
+        assert!(out.iter().all(|&p| p == c), "same colour both sides must stay that exact colour");
+        fill_segment_with_noise(&mut out, Some(c), None, None, 0.0);
+        assert!(out.iter().all(|&p| p == c), "one side only must copy it exactly");
+
+        let mut ramp = vec![Rgb([0, 0, 0]); 3];
+        fill_segment_with_noise(&mut ramp, Some(Rgb([100, 0, 0])), Some(Rgb([200, 0, 0])), None, 0.0);
+        assert_eq!(ramp.iter().map(|p| p.0[0]).collect::<Vec<_>>(), vec![125, 150, 175]);
     }
 
     #[test]

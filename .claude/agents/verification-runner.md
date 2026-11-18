@@ -16,8 +16,7 @@ Read first, every run: all of `docs/agent-knowledge/` —
 
 Procedure:
 1. Work on a COPY of PPRONI-INPUT, never the original or `JB core img batch`.
-2. Build `cargo build --release`. If the hook blocks it for `<jbpair>` tags,
-   stop and tell the orchestrator — do not try to strip tags yourself.
+2. Build `cargo build --release`.
 3. Run with `PPRONI_DEBUG_TAGS` in place.
 4. For each acceptance check, measure the actual value (zero `(0,0,0)` count,
    % filled, streak-vs-background delta, EIX code) using the agreed pixel

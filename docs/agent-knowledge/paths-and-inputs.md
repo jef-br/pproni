@@ -28,9 +28,6 @@ images. Use this folder to recover the "after" images.
   session scratchpad and run there.
 - Build: `cargo build --release` (produces the single hardened exe — see
   [hard-bounds.md](hard-bounds.md)).
-  - Note: the agent's `cargo build` is blocked while `<jbpair>` tags remain
-    (see [tag-protocol.md](tag-protocol.md)). The orchestrator asks the user for
-    a manual build when one is essential.
 - Debug tags: drop an (empty) file literally named `PPRONI_DEBUG_TAGS` next to
   the exe before the run — content ignored, presence only. It turns on
   verdict-tagged outputs:

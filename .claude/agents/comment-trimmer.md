@@ -13,7 +13,7 @@ else. Other agents are editing other files at the same time.
 
 For every comment block, in order:
 1. Does it hold something that must stay at the line (contract, unit, owner tag, trap, short why,
-   `jbpair`/`jbcomplete`, `SAFETY:`, `TODO`)? Keep that part, as short as it can be.
+   `SAFETY:`, `TODO`)? Keep that part, as short as it can be.
 2. Is the rest already written in a doc? Search `docs/` (Grep). If it is, and says the same thing,
    replace the rest with `See docs/<folder>/<file>.md.`
 3. Not in any doc? Move it to your module page (create it: `# <module path>`, a line

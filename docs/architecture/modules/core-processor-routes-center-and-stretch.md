@@ -2,7 +2,8 @@
 
 [Up: architecture](../TOC.md)
 
-R1's picture work: `mod.rs` (the grown silhouette, `apply`), `compose.rs` (the stretch),
+R1's picture work: `mod.rs` (the grown silhouette, `apply`), `flatness.rs` (flat or textured
+background), `compose.rs` (the stretch), `grazes.rs` (lines the product grazes, and the second test), `patch.rs` (the patch fill for them), `gradients.rs` (the flat-edge fade),
 `extend.rs` (the textured-scene reframe) and `inpaint.rs` (the flat fill). How each one works is
 below. The decisions behind the stretch:
 [one stretch function](../../work-state/2026-10-23-one-stretch-function.md).
@@ -168,3 +169,76 @@ behind the same signature ([open follow-ups](../../work-state/open-r1-stretch-fo
 The fill carries uniform noise up to ±`R1_INPAINT_NOISE_SIGMA` from a signed byte roll, so it does not read as a dead-flat seam against the JPEG-noisy stretched pixels
 next to it. The noise comes from a tiny xorshift generator seeded by the context colours and the
 segment length, so the output image is deterministic.
+
+## gradients.rs: the flat-edge gradients
+
+After `compose`, `gradients::blend` fades the invented edges into one flat colour
+([decision](../../work-state/2026-11-13-flat-edge-gradients.md)). It paints, in this order:
+
+| Zone | Where | Fades from full colour to the photo |
+|---|---|---|
+| red | the bottom | from `bottom + max(25% of box height, GATE_MARGIN_PX)` up to `bottom + REFINE_NARROW_BAND_PX` |
+| green, yellow | the bottom corners | along the diagonal from the border, `R1_MARGIN / 2 * long side` under the box, to `REFINE_NARROW_BAND_PX` under the box beside it |
+| blue, cyan | left, right | from `REFINE_NARROW_BAND_PX` in from the border to `REFINE_NARROW_BAND_PX` short of the box |
+
+A zone exists only on a side the square reaches past the image (the overhang); the corners also need
+the bottom zone. The bottom zone needs `GATE_MARGIN_PX` of room under the box, else none of the three
+bottom zones exist. Both constants are used as they are, in pixels of the original image (not scaled by `working_scale`).
+
+The colour is sampled at the edge each zone belongs to (user, 2026-11-18; core 22's bottom had been pulled
+from 242 to 234 by a global colour). `edge_target`: `a` is the mean of the edge band (`REFINE_NARROW_BAND_PX`
+lines nearest the border), `b` the mean of the outermost line, both over the lines the product does not
+graze (`Blocked`). The zone fades into a ramp from `a` at the band's inner edge to `b` at the canvas edge;
+equal values make one flat colour. Corners take the bottom's colour. An edge with fewer than 10 such
+lines falls back on the old whole-photo colour: the per-channel median of the real photo's pixels outside
+the mask, outside every zone and above the bottom of the box. Fewer than 100 such pixels: nothing is painted.
+The box itself is never touched. `blend` is only called on a flat background (next section).
+
+## flatness.rs: is the background flat?
+
+`flatness::is_flat` is the one gate for two jobs. Flat: `compose` stretches from the subject's box and
+`gradients::blend` runs. Textured (or nothing to measure): the stretch is the grown silhouette's, as
+before, and no gradients (core 36 behaves as it always did).
+
+The measure, at the mask's own size (working resolution): luma of the original resized to the mask;
+blocks of `R1_FLAT_BLOCK_PX` (24) with no mask pixel within `R1_FLAT_BLOCK_GAP_PX` (clearance + 3 px), so
+the product's own edge is never counted; per block the standard deviation of luma minus its Gaussian blur
+(`R1_FLAT_SLOW_SIGMA`, so slow ramps and vignettes do not count); a block is rough above
+`R1_FLAT_BLOCK_STD` (2.0). The background is flat when at most `R1_FLAT_ROUGH_SHARE_MAX` (0.10) of the
+counted blocks are rough. A share rather than an average, so texture over part of the photo (core 25-27's
+parquet) is not watered down by flat wall. Replaced the mean high-pass over the photo outside the box
+(`T_TEXTURE_HIGHPASS`, still the preprocessor's): 25-27 scored 4.5 against 3.8 for the images that
+should paint, a gap too thin to set a limit in. Measured on the core set plus the shoes: images that should be
+flat reach a share of 0.05, the textured ones start at 0.20.
+
+**The flat stretch.** In `compose`, `flat_box = Some(box)` replaces every line's band with the box: a
+row's source runs from the box's left or right edge to the photo's border, a column's from the box's
+top or bottom edge. Each edge is then stretched from the whole strip between box and border, full
+length. Only the box is left untouched; the clearance round the product is not kept.
+
+**Grazed lines (`grazes.rs`).** Where the product grazes an edge, stretching a line there copies product
+pixels outwards (core 23: collar pixels in the 2 px above the box). For each edge pass 1 of the classifier
+flagged (`class.refinements`), a line of the original is *blocked* when the mask has a pixel within
+`GATE_MARGIN_PX` of the border on it, plus `GATE_MARGIN_PX` lines either side. `compose` leaves a blocked
+line's overhang empty (its real pixels stay) and fills every run of blocked lines afterwards, between the
+nearest unblocked line each side. Edges the gate did not flag are untouched, so images with no flagged
+edge (core 25-27) cannot change.
+**The second test (`Blocked::choose_fill`).** Per edge that has blocked lines, decided before `compose`:
+the edge is *flat* when a background colour (`bgc`) was found, or when its outermost pixel line (safe
+lines only, smoothed over 5 px) spans at most `R1_GRAZE_FLAT_TOLERANCE` levels between the 5th and 95th
+percentile. Too few safe lines to tell counts as not flat. This test is separate from the rough-block gate
+(`flatness`), which decides the stretch and the gradients and is untouched.
+* Flat edge: `fill_blocked`, per position along the line, `inpaint::fill_segment_with_noise` with noise 0:
+  one colour twice stays that exact colour, two colours give a plain ramp, a run at the end of the edge
+  copies its one neighbour. No noise: seeded by the two colours it gave the same pattern on every line of a
+  flat wall, which showed as stripes (core 23, run 3).
+* Any other edge: the patch fill (`patch.rs`, `patch::fill`). `compose_with_holes` writes the same plain ramp
+  first as a placeholder (so the gradients, which run next, see no black) and returns a flag per canvas
+  pixel for the overhang of every blocked line. After the gradients, each connected gap is rebuilt like a
+  person with the clone stamp, patch tool and healing brush: patches of `R1_PATCH_PX` are copied from the
+  safe overhang and from the photo outside the product and its margin (`clearance_px`), never inside them,
+  no mirroring. Order: the target with most known neighbours first, so it paints in from the gap's
+  borders. Best source out of `R1_PATCH_CANDIDATES` random ones plus the last offsets, then a short local
+  search. Matching and healing use every real non-product pixel next to the gap, the margin zone and the
+  photo rows beside the product included. Healing is Poisson blending (conjugate gradients): the copied
+  texture, the surrounding colours. Cores 50 (hay) and 51 (wrinkled paper) are the test cases.

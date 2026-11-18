@@ -18,7 +18,7 @@ the comment points there.
 * **Traps at the line.** Anything the next editor must see before touching that line: "must stay
   sorted", "working-resolution pixels", "keeps an exact tie on the side the rule says".
 * **Short why.** One or two sentences on a choice that is not obvious from the code.
-* `<jbpair>` / `<jbcomplete>` tags ([tag protocol](tag-protocol.md)), `SAFETY:` notes, `TODO`s.
+* `SAFETY:` notes, `TODO`s.
 
 ## Moves to the docs (and leaves a pointer)
 * **History:** "used to", "replaced", "tried and reverted", "was X before 2026-…".

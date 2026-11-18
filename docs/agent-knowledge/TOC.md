@@ -12,5 +12,4 @@ Shared by the **verification runner** and the **correctness reviewer** unless a 
 | [stem-map.md](stem-map.md) | Plan label (det3, 268, mountain…) → actual image number | runner, reviewer |
 | [acceptance-checks.md](acceptance-checks.md) | Each verification check as a number + how it's measured | runner, reviewer |
 | [hard-bounds.md](hard-bounds.md) | Invariants that must never break | reviewer (runner for EIX/coverage) |
-| [tag-protocol.md](tag-protocol.md) | The `<jbpair>`/`<jbcomplete>` comment convention + lifecycle | scout, reviewer |
 | [code-comments.md](code-comments.md) | What a Rust comment keeps, what moves to `docs/`, the pointer form, the checks | comment-trimmer, comment-auditor, reviewer |

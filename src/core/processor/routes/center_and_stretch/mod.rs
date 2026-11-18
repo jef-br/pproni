@@ -13,7 +13,11 @@
 
 pub mod compose;
 pub mod extend;
+pub mod flatness;
+pub mod gradients;
+pub mod grazes;
 pub mod inpaint;
+pub mod patch;
 
 use super::super::super::config;
 use super::super::super::preprocessor::Prepared;
@@ -179,7 +183,38 @@ pub fn apply(prep: &Prepared, shot: Shot<'_>, job: R1Job) -> RgbImage {
         R1Job::Stretch(plan) => {
             let silhouette =
                 Silhouette::from_mask(shot.mask, prep.original.width(), prep.original.height(), clearance_px(prep));
-            compose::compose(&prep.original, &plan, &silhouette, shot.bgc)
+            // A flat background is stretched from the subject's box and faded to one colour at the
+            // invented edges; a textured one is stretched from the grown silhouette and left as is.
+            let flat_box = shot.subject_bbox_in(prep).filter(|_| flatness::is_flat(&prep.original, shot.mask));
+            // Lines where the product grazes a flagged edge are not stretched, flat background or not. The
+            // second test decides, per edge, how they are filled: a plain ramp, or the patch fill below.
+            let flagged: Vec<_> = shot.class.refinements.iter().map(|r| r.edge).collect();
+            let mut blocked = grazes::blocked_lines(shot.mask, &flagged, prep.original.dimensions());
+            blocked.choose_fill(&prep.original, shot.bgc);
+            let (mut canvas, gaps) =
+                compose::compose_with_holes(&prep.original, &plan, &silhouette, shot.bgc, flat_box, Some(&blocked));
+            if let Some(subject) = flat_box {
+                let square = gradients::Square {
+                    plan,
+                    subject,
+                    original: prep.original.dimensions(),
+                    mask: shot.mask,
+                    blocked: Some(&blocked),
+                };
+                gradients::blend(&mut canvas, &square);
+            }
+            // After the gradients, which see the placeholder fill: the patch fill reads the finished
+            // overhang as its source.
+            if gaps.iter().any(|&g| g) {
+                let scene = patch::Scene {
+                    mask: shot.mask,
+                    origin: (plan.x, plan.y),
+                    orig: prep.original.dimensions(),
+                    margin_px: clearance_px(prep),
+                };
+                patch::fill(&mut canvas, &gaps, &scene);
+            }
+            canvas
         }
     }
 }
@@ -220,7 +255,7 @@ mod tests {
         let subject = Shot { class: &class, mask, bgc }.subject_bbox().expect("a subject");
         let plan = SquarePlan::new(subject, config::R1_MARGIN, Pins::NONE).expect("a legal square");
         let silhouette = Silhouette::from_mask(mask, img.width(), img.height(), 2);
-        compose::compose(img, &plan, &silhouette, bgc)
+        compose::compose(img, &plan, &silhouette, bgc, None, None)
     }
 
     #[test]
@@ -348,6 +383,44 @@ mod tests {
         for x in 0..67u32 {
             let v = out.get_pixel(x, row)[0];
             assert!(v <= 36, "overhang pixel {x} outside the source range: {v}");
+        }
+    }
+
+    #[test]
+    fn on_a_flat_background_the_stretch_starts_at_the_subjects_box_not_the_grown_silhouette() {
+        // Same scene as the ramp test above. The grown silhouette (2 px) would start the band at source
+        // column 18; the box starts it at column 20, so columns 18 and 19 become stretch source.
+        let mut img = RgbImage::new(120, 400);
+        for y in 0..400 {
+            for x in 0..120 {
+                let v = (x * 255 / 119) as u8;
+                img.put_pixel(x, y, Rgb([v, v, v]));
+            }
+        }
+        let mut mask = Mask { width: 120, height: 400, data: vec![0u8; 120 * 400] };
+        for y in 100..300 {
+            for x in 20..100 {
+                img.put_pixel(x, y, Rgb([255, 0, 0]));
+                mask.data[(y * 120 + x) as usize] = 255;
+            }
+        }
+        let class = ShotClassification::default();
+        let subject = Shot { class: &class, mask: &mask, bgc: None }.subject_bbox().expect("a subject");
+        let plan = SquarePlan::new(subject, config::R1_MARGIN, Pins::NONE).expect("a legal square");
+        let silhouette = Silhouette::from_mask(&mask, 120, 400, 2);
+        let out = compose::compose(&img, &plan, &silhouette, None, Some(subject), None);
+
+        // Square starts 49 columns left of the image and 91 rows down: the box starts at output column 69.
+        let row = out.height() / 2;
+        for x in 69..140u32 {
+            assert_eq!(out.get_pixel(x, row), img.get_pixel(x - 49, row + 91), "box altered at {x}");
+        }
+        // The pixel next to the box is source column 19 (ramp value 40), where the silhouette's band
+        // would have given column 17 (36).
+        let next_to_box = out.get_pixel(68, row)[0];
+        assert!((38..=42).contains(&next_to_box), "expected about 40 next to the box, got {next_to_box}");
+        for x in 0..69u32 {
+            assert!(out.get_pixel(x, row)[0] <= 40, "overhang pixel {x} outside the source range");
         }
     }
 

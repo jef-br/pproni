@@ -7,16 +7,41 @@ use image::{Rgb, RgbImage};
 
 use super::inpaint;
 use crate::core::shot_classifier::plan::SquarePlan;
-use crate::core::shot_classifier::Edge;
+use crate::core::shot_classifier::{geometry::Rect, Edge};
 
 /// Compose the square from `src`, stretching background outward wherever the square reaches past a
 /// border. `silhouette` holds, per row and per column of `src`, the span the grown silhouette
 /// covers. `bgc` is the one dominant background colour the exporter sampled, when present; it fills
-/// a line that has no background to stretch.
-pub fn compose(src: &RgbImage, plan: &SquarePlan, silhouette: &super::Silhouette, bgc: Option<Rgb<u8>>) -> RgbImage {
+/// a line that has no background to stretch. `flat_box` is the subject's box in `src`'s pixels when the
+/// background is flat (`flatness`): every line then stretches from that box's edge, so the source is the
+/// whole strip between the box and the border; `None` keeps the grown silhouette's per-line band.
+/// `blocked` lists the lines the product grazes, which are not stretched but
+/// filled from the lines either side (`grazes`).
+pub fn compose(
+    src: &RgbImage,
+    plan: &SquarePlan,
+    silhouette: &super::Silhouette,
+    bgc: Option<Rgb<u8>>,
+    flat_box: Option<Rect>,
+    blocked: Option<&super::grazes::Blocked>,
+) -> RgbImage {
+    compose_with_holes(src, plan, silhouette, bgc, flat_box, blocked).0
+}
+
+/// [`compose`], and the gaps for the patch fill ([`super::patch`]): one flag per canvas pixel, row by
+/// row, set on the overhang of every blocked line of an edge `blocked.patch` names. Those pixels hold a
+/// plain placeholder fill meanwhile. Empty when there is no gap.
+pub fn compose_with_holes(
+    src: &RgbImage,
+    plan: &SquarePlan,
+    silhouette: &super::Silhouette,
+    bgc: Option<Rgb<u8>>,
+    flat_box: Option<Rect>,
+    blocked: Option<&super::grazes::Blocked>,
+) -> (RgbImage, Vec<bool>) {
     let (w, h) = src.dimensions();
     let Some(real) = plan.real_region(w, h) else {
-        return RgbImage::new(plan.side, plan.side);
+        return (RgbImage::new(plan.side, plan.side), Vec::new());
     };
     let over = plan.overhang(w, h);
 
@@ -37,33 +62,64 @@ pub fn compose(src: &RgbImage, plan: &SquarePlan, silhouette: &super::Silhouette
     // Product band per line, in canvas coordinates. Rows: the real rows only. Columns: every column
     // of the square; one past the picture's own columns takes the nearest real column's band, which
     // is where the horizontal edges took their background from.
-    let row_bands: Vec<(i64, i64)> = (0..real.h)
-        .map(|ry| {
-            let (lo, hi) = silhouette.row_x[(real.y + ry) as usize];
-            (lo - plan.x, hi - plan.x)
+    let (row_bands, col_bands): (Vec<(i64, i64)>, Vec<(i64, i64)>) = match flat_box {
+        // Flat background: the band is the subject's box on every line.
+        Some(b) => (
+            vec![(b.x as i64 - plan.x, (b.x + b.w) as i64 - plan.x); real.h as usize],
+            vec![(b.y as i64 - plan.y, (b.y + b.h) as i64 - plan.y); plan.side as usize],
+        ),
+        None => (
+            (0..real.h)
+                .map(|ry| {
+                    let (lo, hi) = silhouette.row_x[(real.y + ry) as usize];
+                    (lo - plan.x, hi - plan.x)
+                })
+                .collect(),
+            (0..plan.side)
+                .map(|x| {
+                    let c = (plan.x + x as i64).clamp(0, w as i64 - 1) as usize;
+                    let (lo, hi) = silhouette.col_y[c];
+                    (lo - plan.y, hi - plan.y)
+                })
+                .collect(),
+        ),
+    };
+
+    // Blocked lines per edge, on the canvas's lines: a row of the real part for
+    // left and right, a column of the square for top and bottom (columns past the picture read the
+    // nearest real column, as `col_bands` does).
+    let rows_of = |v: &[bool]| -> Option<Vec<bool>> {
+        (!v.is_empty()).then(|| (0..real.h).map(|ry| v.get((real.y + ry) as usize).copied().unwrap_or(false)).collect())
+    };
+    let cols_of = |v: &[bool]| -> Option<Vec<bool>> {
+        (!v.is_empty()).then(|| {
+            (0..plan.side)
+                .map(|x| v.get((plan.x + x as i64).clamp(0, w as i64 - 1) as usize).copied().unwrap_or(false))
+                .collect()
         })
-        .collect();
-    let col_bands: Vec<(i64, i64)> = (0..plan.side)
-        .map(|x| {
-            let c = (plan.x + x as i64).clamp(0, w as i64 - 1) as usize;
-            let (lo, hi) = silhouette.col_y[c];
-            (lo - plan.y, hi - plan.y)
-        })
-        .collect();
+    };
+    let patch = blocked.map(|b| b.patch).unwrap_or_default();
+    let holes = std::cell::RefCell::new(if patch == Default::default() { Vec::new() } else { vec![false; (plan.side * plan.side) as usize] });
+    let (left_b, right_b) = (blocked.and_then(|b| rows_of(&b.left)), blocked.and_then(|b| rows_of(&b.right)));
+    let (top_b, bottom_b) = (blocked.and_then(|b| cols_of(&b.top)), blocked.and_then(|b| cols_of(&b.bottom)));
 
     if over.left > 0 {
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: oy, bands: &row_bands, real: (ox, ox + rw) }, bgc);
+        let job = EdgeJob { edge: Edge::Left, first: oy, bands: &row_bands, real: (ox, ox + rw), blocked: left_b.as_deref(), patch: patch.left, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, bgc);
     }
     if over.right > 0 {
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Right, first: oy, bands: &row_bands, real: (ox, ox + rw) }, bgc);
+        let job = EdgeJob { edge: Edge::Right, first: oy, bands: &row_bands, real: (ox, ox + rw), blocked: right_b.as_deref(), patch: patch.right, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, bgc);
     }
     if over.top > 0 {
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Top, first: 0, bands: &col_bands, real: (oy, oy + rh) }, bgc);
+        let job = EdgeJob { edge: Edge::Top, first: 0, bands: &col_bands, real: (oy, oy + rh), blocked: top_b.as_deref(), patch: patch.top, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, bgc);
     }
     if over.bottom > 0 {
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Bottom, first: 0, bands: &col_bands, real: (oy, oy + rh) }, bgc);
+        let job = EdgeJob { edge: Edge::Bottom, first: 0, bands: &col_bands, real: (oy, oy + rh), blocked: bottom_b.as_deref(), patch: patch.bottom, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, bgc);
     }
-    canvas
+    (canvas, holes.into_inner())
 }
 
 /// What [`stretch_edge`] needs to know about one edge of the square.
@@ -77,6 +133,13 @@ struct EdgeJob<'a> {
     /// Where the real picture lies along the line, `[lo, hi)`, in canvas coordinates. Everything
     /// outside it, up to the canvas border, is the overhang.
     real: (i64, i64),
+    /// Per line, `true` when the product grazes the edge there ([`super::grazes`]): the line is not
+    /// stretched, and its overhang is filled from the nearest unblocked lines either side.
+    blocked: Option<&'a [bool]>,
+    /// `true` when the patch fill ([`super::patch`]) is to redo the blocked lines' overhang: each of its
+    /// pixels is flagged in `holes`. The plain ramp of [`fill_blocked`] is written first either way.
+    patch: bool,
+    holes: Option<&'a std::cell::RefCell<Vec<bool>>>,
 }
 
 /// Fill the overhang of one edge of the square: the only place where R1 stretches, the same code for
@@ -106,6 +169,7 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
     let mut seg_len = vec![0i64; job.bands.len()];
     let mut bled = vec![false; job.bands.len()];
     let mut band_edge = vec![0i64; job.bands.len()];
+    let mut blocked = vec![false; job.bands.len()];
 
     for (i, &(lo, hi)) in job.bands.iter().enumerate() {
         let line = job.first + i as i64;
@@ -117,6 +181,14 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
         band_edge[i] = edge;
         seg_len[i] = total;
         if total <= 0 {
+            continue;
+        }
+        if job.blocked.is_some_and(|f| f[i]) {
+            // The product grazes the edge on this line: nothing is stretched, only the overhang is
+            // left to fill, from the lines either side.
+            blocked[i] = true;
+            band_edge[i] = if low_side { r0 } else { r1 };
+            seg_len[i] = if low_side { r0 } else { side - r1 };
             continue;
         }
         if n <= 0 {
@@ -141,7 +213,61 @@ fn stretch_edge(canvas: &mut RgbImage, job: &EdgeJob<'_>, bgc: Option<Rgb<u8>>) 
             canvas.put_pixel(x, y, px);
         }
     }
+    fill_blocked(canvas, job, &blocked, &seg_len, &band_edge, &at, &outward, bgc);
+    if let (true, Some(holes)) = (job.patch, job.holes) {
+        let mut holes = holes.borrow_mut();
+        for (i, _) in blocked.iter().enumerate().filter(|(_, &b)| b) {
+            for d in 0..seg_len[i] {
+                let (x, y) = at(job.first + i as i64, outward(band_edge[i], d));
+                holes[(y * canvas.width() + x) as usize] = true;
+            }
+        }
+    }
     borrow_neighbour_lines(canvas, job, &bled, &seg_len, &band_edge, &at, &outward, grain);
+}
+
+/// Fill the overhang of every run of blocked lines: at each position along the line, from the nearest
+/// unblocked line either side. Same colour on both sides gives that colour; two colours give a ramp
+/// between them (`inpaint::fill_segment`); a run at the end of the edge copies its one neighbour.
+fn fill_blocked(
+    canvas: &mut RgbImage,
+    job: &EdgeJob<'_>,
+    blocked: &[bool],
+    seg_len: &[i64],
+    band_edge: &[i64],
+    at: &dyn Fn(i64, i64) -> (u32, u32),
+    outward: &dyn Fn(i64, i64) -> i64,
+    bgc: Option<Rgb<u8>>,
+) {
+    let n = blocked.len();
+    let mut i = 0;
+    while i < n {
+        if !blocked[i] {
+            i += 1;
+            continue;
+        }
+        let first = i;
+        while i < n && blocked[i] {
+            i += 1;
+        }
+        let (before, after) = ((first > 0).then(|| first - 1), (i < n).then_some(i));
+        for d in 0..seg_len[first] {
+            let pos = outward(band_edge[first], d);
+            let context = |line: Option<usize>| {
+                line.map(|l| {
+                    let (x, y) = at(job.first + l as i64, pos);
+                    *canvas.get_pixel(x, y)
+                })
+            };
+            let mut run = vec![Rgb([0u8, 0, 0]); i - first];
+            // No noise: the fill must stay flat (an edge that varies is redone by the patch fill).
+            inpaint::fill_segment_with_noise(&mut run, context(before), context(after), bgc, 0.0);
+            for (k, px) in run.into_iter().enumerate() {
+                let (x, y) = at(job.first + (first + k) as i64, pos);
+                canvas.put_pixel(x, y, px);
+            }
+        }
+    }
 }
 
 /// The grain of the real source along one edge, per channel, as the standard deviation of the noise.
@@ -402,7 +528,7 @@ mod tests {
                 canvas.put_pixel(x, 0, Rgb([0, 0, 0]));
             }
             let white = Rgb([255, 255, 255]);
-            let job = EdgeJob { edge: Edge::Left, first: 0, bands: &[(5, 20)], real: (5, 20) };
+            let job = EdgeJob { edge: Edge::Left, first: 0, bands: &[(5, 20)], real: (5, 20), blocked: None, patch: false, holes: None };
             stretch_edge(&mut canvas, &job, Some(white));
             for x in 0..5u32 {
                 let p = *canvas.get_pixel(x, 0);
@@ -417,7 +543,7 @@ mod tests {
         // No BGC either: white.
         {
             let mut canvas = RgbImage::from_pixel(20, 1, Rgb([10, 90, 10]));
-            let job = EdgeJob { edge: Edge::Right, first: 0, bands: &[(0, 15)], real: (0, 15) };
+            let job = EdgeJob { edge: Edge::Right, first: 0, bands: &[(0, 15)], real: (0, 15), blocked: None, patch: false, holes: None };
             stretch_edge(&mut canvas, &job, None);
             for x in 15..20u32 {
                 assert!(canvas.get_pixel(x, 0).0.iter().all(|&c| c >= 240), "not white at {x}");
@@ -433,7 +559,7 @@ mod tests {
                 }
             }
             let bands = [(4i64, 10i64); 3];
-            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: None, patch: false, holes: None }, None);
             for y in 0..3 {
                 for x in 0..4u32 {
                     assert!(canvas.get_pixel(x, y).0.iter().all(|&c| c >= 240), "no neighbour, so white at ({x},{y})");
@@ -455,7 +581,7 @@ mod tests {
                 }
             }
             let bands = [(8i64, 12i64), (4, 12), (8, 12)];
-            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 12) }, None);
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 12), blocked: None, patch: false, holes: None }, None);
             for x in 0..4u32 {
                 assert_eq!(canvas.get_pixel(x, 1)[0], 125, "row 1 is the mean of rows 0 and 2 at {x}");
             }
@@ -474,7 +600,7 @@ mod tests {
                 }
             }
             let bands = [(7i64, 10i64), (4, 10), (4, 10), (4, 10), (7, 10)];
-            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: None, patch: false, holes: None }, None);
             let col0: Vec<u8> = (0..5).map(|y| canvas.get_pixel(0, y)[0]).collect();
             assert_eq!(col0, vec![100, 125, 150, 175, 200]);
         }
@@ -488,11 +614,75 @@ mod tests {
                 }
             }
             let bands = [(7i64, 10i64), (4, 10), (4, 10)];
-            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10) }, None);
+            stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: None, patch: false, holes: None }, None);
             for y in 1..3 {
                 assert_eq!(canvas.get_pixel(0, y)[0], 90, "row {y} copies row 0");
             }
         }
+    }
+
+    #[test]
+    fn blocked_lines_are_not_stretched_and_are_filled_from_the_lines_either_side() {
+        // Real picture from column 4 on: rows 0-1 are 100, rows 5-6 are 200, rows 2-4 are blocked.
+        let mut canvas = RgbImage::new(10, 7);
+        for y in 0..7 {
+            for x in 4..10 {
+                canvas.put_pixel(x, y, Rgb([if y < 3 { 100 } else { 200 }, 0, 0]));
+            }
+        }
+        canvas.put_pixel(4, 3, Rgb([77, 0, 0])); // a blocked row's own pixels stay as they are
+        let bands = [(6i64, 10i64); 7];
+        let blocked = [false, false, true, true, true, false, false];
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: Some(&blocked), patch: false, holes: None };
+        stretch_edge(&mut canvas, &job, None);
+        // Between rows 1 and 5 (100 and 200) the overhang ramps: 125, 150, 175, give or take the fill's noise.
+        for (y, want) in [(2u32, 125i32), (3, 150), (4, 175)] {
+            for x in 0..4u32 {
+                let v = canvas.get_pixel(x, y)[0] as i32;
+                assert_eq!(v, want, "row {y}, column {x}");
+            }
+        }
+        assert_eq!(canvas.get_pixel(4, 3)[0], 77, "the blocked row's real pixels are untouched");
+        // Rows with a source are their own stretch, untouched by the fill.
+        assert_eq!(canvas.get_pixel(0, 1)[0], 100);
+        assert_eq!(canvas.get_pixel(0, 5)[0], 200);
+
+        // Same colour both sides: that colour (give or take the noise). One side only: a copy of it.
+        let mut canvas = RgbImage::from_pixel(10, 7, Rgb([90, 90, 90]));
+        let blocked = [true, true, false, false, false, true, true];
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: Some(&blocked), patch: false, holes: None };
+        stretch_edge(&mut canvas, &job, None);
+        for y in 0..7 {
+            for x in 0..4u32 {
+                let v = canvas.get_pixel(x, y)[0] as i32;
+                assert_eq!(v, 90, "row {y}, column {x}");
+            }
+        }
+    }
+
+    #[test]
+    fn blocked_lines_of_a_patch_edge_are_flagged_as_gaps_and_hold_the_plain_ramp_meanwhile() {
+        // Real picture from column 4. Rows 0-2 are 100, rows 4-6 are 200, row 3 is blocked.
+        let mut canvas = RgbImage::new(10, 7);
+        for y in 0..7 {
+            for x in 4..10 {
+                canvas.put_pixel(x, y, Rgb([if y < 3 { 100 } else { 200 }, 50, 50]));
+            }
+        }
+        let bands = [(6i64, 10i64); 7];
+        let blocked = [false, false, false, true, false, false, false];
+        let holes = std::cell::RefCell::new(vec![false; 70]);
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: Some(&blocked), patch: true, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, None);
+        let flagged: Vec<usize> = holes.borrow().iter().enumerate().filter(|(_, &f)| f).map(|(i, _)| i).collect();
+        assert_eq!(flagged, vec![30, 31, 32, 33], "row 3, columns 0 to 3, and nothing else");
+        assert_eq!(*canvas.get_pixel(1, 3), Rgb([150, 50, 50]), "the placeholder is the ramp");
+
+        // An edge that is not a patch edge flags nothing.
+        let holes = std::cell::RefCell::new(vec![false; 70]);
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (4, 10), blocked: Some(&blocked), patch: false, holes: Some(&holes) };
+        stretch_edge(&mut canvas, &job, None);
+        assert!(holes.borrow().iter().all(|&f| !f));
     }
 
     /// A deterministic noisy value, roughly N(0, sigma) per channel, to give a synthetic photo grain.
@@ -505,7 +695,7 @@ mod tests {
     fn the_grain_estimate_follows_the_noise_of_the_source_and_is_zero_for_a_clean_one() {
         let side = 120u32;
         let bands: Vec<(i64, i64)> = vec![(100, 120); side as usize];
-        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (0, 120) };
+        let job = EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (0, 120), blocked: None, patch: false, holes: None };
         let at = |line: i64, pos: i64| (pos as u32, line as u32);
         for sigma in [1.5f32, 3.0] {
             let mut img = RgbImage::new(side, side);
@@ -544,7 +734,7 @@ mod tests {
         }
         let bands: Vec<(i64, i64)> = (0..h as i64).map(|y| if (30..50).contains(&y) { (20, 80) } else { (50, 80) }).collect();
         let before = canvas.clone();
-        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80) }, None);
+        stretch_edge(&mut canvas, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80), blocked: None, patch: false, holes: None }, None);
         let values: Vec<f32> = (31..49).flat_map(|y| (0..20).map(move |x| (x, y))).map(|(x, y)| canvas.get_pixel(x, y)[0] as f32).collect();
         let mean = values.iter().sum::<f32>() / values.len() as f32;
         let sd = (values.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / values.len() as f32).sqrt();
@@ -559,7 +749,7 @@ mod tests {
         }
         // Deterministic: the same picture gives the same grain.
         let mut again = before.clone();
-        stretch_edge(&mut again, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80) }, None);
+        stretch_edge(&mut again, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (20, 80), blocked: None, patch: false, holes: None }, None);
         assert_eq!(canvas, again);
     }
 
@@ -574,22 +764,22 @@ mod tests {
         let s = side as i64;
 
         let mut left = scene.clone();
-        stretch_edge(&mut left, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (r0, s) }, bgc);
+        stretch_edge(&mut left, &EdgeJob { edge: Edge::Left, first: 0, bands: &bands, real: (r0, s), blocked: None, patch: false, holes: None }, bgc);
 
         // Right: mirror the scene, bands and real span.
         let mut right = flip_h(&scene);
         let right_bands: Vec<(i64, i64)> = bands.iter().map(|&(lo, hi)| (s - hi, s - lo)).collect();
-        stretch_edge(&mut right, &EdgeJob { edge: Edge::Right, first: 0, bands: &right_bands, real: (0, s - r0) }, bgc);
+        stretch_edge(&mut right, &EdgeJob { edge: Edge::Right, first: 0, bands: &right_bands, real: (0, s - r0), blocked: None, patch: false, holes: None }, bgc);
         assert_eq!(flip_h(&right), left, "right edge differs from the left edge");
 
         // Top: transpose, so rows become columns.
         let mut top = transposed(&scene);
-        stretch_edge(&mut top, &EdgeJob { edge: Edge::Top, first: 0, bands: &bands, real: (r0, s) }, bgc);
+        stretch_edge(&mut top, &EdgeJob { edge: Edge::Top, first: 0, bands: &bands, real: (r0, s), blocked: None, patch: false, holes: None }, bgc);
         assert_eq!(transposed(&top), left, "top edge differs from the left edge");
 
         // Bottom: transpose, then mirror the line axis.
         let mut bottom = flip_v(&transposed(&scene));
-        stretch_edge(&mut bottom, &EdgeJob { edge: Edge::Bottom, first: 0, bands: &right_bands, real: (0, s - r0) }, bgc);
+        stretch_edge(&mut bottom, &EdgeJob { edge: Edge::Bottom, first: 0, bands: &right_bands, real: (0, s - r0), blocked: None, patch: false, holes: None }, bgc);
         assert_eq!(transposed(&flip_v(&bottom)), left, "bottom edge differs from the left edge");
     }
 
