@@ -20,16 +20,24 @@ module or a public function, patch its node in the same commit.
 
 What each container now says:
 
-- **App** — launch, `core::preflight` (unpack the embedded runtime, build the session, abort on
-  failure), the desktop folder bootstrap, and `batch::run`'s rayon fan-out with its one level of
-  subfolder recursion mirrored into `PPRONI-OUTPUT` and `PPRONI-BACKUP`.
-- **Preprocessor** — decode + EXIF, the unconditional alpha flatten onto white, the sRGB branch,
-  the optimiser (colour balance, then the trim crop), the letterbox/pillarbox-bar detector, and
-  `Prepared { original, working, model_input, crop, letterbox }`.
-- **Shot Classifier** — segmentation, pass-1 `gate`, pass-2 `refine_edge`, the graze test, and the
-  `ShotClassification` + `Mask` that leaves for the Processor. The no-verdict `None` is a node of
-  its own, because it is not the same thing as an empty edge list.
-- **Processor** — `Route::select`'s two questions and the three routes behind them.
+- **App** — launch, `core::preflight` (unpack the embedded runtime, build the BiRefNet and headcut
+  sessions, abort on failure), the desktop folder bootstrap, the headcut question (only when
+  `PERMIT_HEADCUTS` is on) and `batch::run`'s rayon fan-out with its one level of subfolder
+  recursion mirrored into `PPRONI-OUTPUT` and `PPRONI-BACKUP`.
+- **Core** — `core::process_file`'s order (prepare, classify, headcut, framing, colours, route,
+  export), the headcut step, `core::framing` and the one BGC/FGC sample.
+- **Preprocessor** — decode + EXIF, the unconditional alpha flatten onto white, the sRGB branch
+  (an already-sRGB profile is skipped), the optimiser (colour balance, then the trim crop), the
+  letterbox/pillarbox-bar detector, `maria_antonieta` (the headcut face detector) and
+  `Prepared { original, working, model_input, crop, trims, framing, letterbox }`.
+- **Shot Classifier** — segmentation (graphics card or CPU), pass-1 `gate`, pass-2 `refine_edge`, the
+  graze test, the `ShotClassification` + `Mask`, and then `route::decide` with `plan_square`: the
+  routing decisions live here, not in the routes. The no-verdict `None` is a node of its own,
+  because it is not the same thing as an empty edge list.
+- **Processor** — the three routes, `route::send` having picked one. R1 is a chain of nodes, one
+  per module of `center_and_stretch`: `flatness`, `grazes`, the solid test, `compose` (with
+  `inpaint` and `Silhouette` beside it), `gradients`, `patch`, `solid`, and `extend` for the
+  textured-scene reframe.
 - **Exporter** — `resize::to_envelope`, the `PPRONI_DEBUG_TAGS` branch, the JPEG save, and the move of
   the original into `PPRONI-BACKUP` on success.
 - **Dev harness** — `examples/run_dir.rs`, replacing the proposed `Pproni-Analyzer` container whose
