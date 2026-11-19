@@ -22,7 +22,6 @@ One file per decision or topic. A new decision gets its own dated file, listed a
 
 ## Rejected and parked
 * [Rejected](rejected.md)
-* [Parked: the first trim](parked-first-trim.md)
 
 ## Open
 * [R1 stretch/inpaint follow-ups](open-r1-stretch-follow-ups.md)

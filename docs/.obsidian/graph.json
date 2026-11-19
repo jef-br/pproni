@@ -6,7 +6,36 @@
   "hideUnresolved": false,
   "showOrphans": true,
   "collapse-color-groups": true,
-  "colorGroups": [],
+  "colorGroups": [
+    {
+      "query": "path:architecture/modules",
+      "color": {
+        "a": 1,
+        "rgb": 16711680
+      }
+    },
+    {
+      "query": "path:work-state",
+      "color": {
+        "a": 1,
+        "rgb": 33023
+      }
+    },
+    {
+      "query": "path:specs",
+      "color": {
+        "a": 1,
+        "rgb": 51283
+      }
+    },
+    {
+      "query": "path:agent-knowledge",
+      "color": {
+        "a": 1,
+        "rgb": 14251863
+      }
+    }
+  ],
   "collapse-display": true,
   "showArrow": false,
   "textFadeMultiplier": 0,
