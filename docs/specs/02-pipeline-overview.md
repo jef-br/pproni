@@ -1,6 +1,6 @@
 # 2 · Pipeline overview
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 Five stages. The Shot Classifier decides which route an image takes; everything downstream hangs
 off that one decision.

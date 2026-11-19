@@ -1,6 +1,6 @@
 # 9 · Open questions
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 - **Q1** · `LOSS_MAX` value ([§6.4](06-crop-compose-r2.md) ①) — R2 only now; R1 never clips the subject. **Dormant:** [§6](06-crop-compose-r2.md)
   (CoG/MSR) is `DEFERRED`, so this blocks nothing until R2 saliency is built.

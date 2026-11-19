@@ -1,6 +1,6 @@
 # Rejected
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * Raw-colour retry (adds another path).
 * Blind zoom-to-65% retry.

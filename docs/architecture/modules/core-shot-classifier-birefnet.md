@@ -1,6 +1,6 @@
 # core::shot_classifier::birefnet
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/birefnet.rs` comments. The module table is
 [2. Modules: `core::shot_classifier`](../02-modules-shot-classifier.md); the embedded, encrypted

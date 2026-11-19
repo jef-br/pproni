@@ -1,6 +1,6 @@
 # 3. Routing
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 Three routes, keyed on the shot classifier's verdict:
 

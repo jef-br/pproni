@@ -1,6 +1,6 @@
 # Decided 2026-10-21: the trims and framing (`optimizer::optimize_both`, `core::framing`)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * BiRefNet runs once per image, on a backed-off crop of trim 1.
 * Trim 2 (`recheck_box`) is information only (`Prepared::trims`).

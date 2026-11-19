@@ -1,6 +1,6 @@
 # core::processor::routes
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 The three routes that turn a classified picture into its square. What each one does and which
 verdict picks it: [routing](../03-routing.md) and [spec §5](../../specs/05-routing.md). Why the

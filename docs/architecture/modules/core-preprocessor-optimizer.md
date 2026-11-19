@@ -1,6 +1,6 @@
 # core::preprocessor::optimizer
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/preprocessor/optimizer.rs` comments. The optimiser itself (colour
 balance, trim 1, trim 2) is [1. Pipeline: why two resolutions](../01-why-two-resolutions.md); this

@@ -1,6 +1,6 @@
 # 1. Pipeline: why two resolutions
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 `Prepared` carries the image three times: `original` at full resolution, `working` reduced to
 `config::WORKING_SIZE` on its longest side (both true colour), and `model_input`, the image BiRefNet

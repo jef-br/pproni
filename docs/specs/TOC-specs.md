@@ -1,6 +1,6 @@
 # Pproni — Design Spec & Source of Truth
 
-[Up: docs home](../TOC.md)
+[Up: docs home](../TOC-PProni.md)
 
 *living document · maintained by Claude from your comments + chat · v1 · 2026-08-26*
 

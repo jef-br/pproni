@@ -1,6 +1,6 @@
 # 4 · Resolution & bbox policy `BUILT`
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 - **Working size:** if the largest dimension is ≤ `WORKING_SIZE` (1024 px), the image is used as-is;
   larger images are reduced to 1024 on the long side. Never upscaled — upscaling would invent detail

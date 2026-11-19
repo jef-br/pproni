@@ -1,6 +1,6 @@
 # build
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 `build.rs`, the build-time steps that shape the final exe. Model embedding and encryption as a
 whole: [5. Single hardened exe](../05-single-exe.md). This page holds only what that one does not.

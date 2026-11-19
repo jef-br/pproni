@@ -1,6 +1,6 @@
 # main
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the comments of `src/main.rs`. The `app` modules it starts are
 [2. Modules: `app`](../02-modules-app.md).

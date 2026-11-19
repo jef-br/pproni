@@ -1,6 +1,6 @@
 # Decided 2026-11-13: flat background on R1's invented edges: the flat stretch and the gradients (user)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 Built on branch `flat-bg-gradients` from the user's hand-made targets (23 shoe photos) and pseudo-code. Merged into
 `main` as version 2.4.0 on 2026-11-19; the branch is deleted. Code: `center_and_stretch/flatness.rs`, `compose.rs`,

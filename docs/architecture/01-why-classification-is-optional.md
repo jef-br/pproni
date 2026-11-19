@@ -1,6 +1,6 @@
 # 1. Pipeline: why classification is optional
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 `classify` returns `Option`. `None` means *no verdict* — the model is unavailable, or inference
 failed on this image. That is deliberately distinct from `Some` with an empty `touches_edges`, which

@@ -1,6 +1,6 @@
 # tests
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 The integration tests in `tests/`.
 

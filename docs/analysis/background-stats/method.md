@@ -1,6 +1,6 @@
 # How the numbers are made
 
-[Up: background statistics](TOC.md)
+[Up: background statistics](TOC-analysis-background-stats.md)
 
 * Background = everything outside the BiRefNet mask, after growing the mask by 2% of the long side (drops the halo and contact shadow next to the subject).
 * All brightness values are Lab L on a 0-255 scale. Colour spread is the robust spread (MAD x 1.4826), so a few specks do not move it.

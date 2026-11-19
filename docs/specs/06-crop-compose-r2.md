@@ -1,6 +1,6 @@
 # 6 · Crop & compose — CoG / MSR square `R2 ONLY`
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 **Scope narrowed 2026-09-09.** R1 no longer uses any of this: it anchors on the mask's bounding
 box, pins bled edges and stretches background to fill ([§5.1](05-routing.md)). What follows is R2's machinery — the

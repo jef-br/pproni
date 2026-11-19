@@ -1,6 +1,6 @@
 # 3 · Shot Classifier (SC) — the brain `BUILT`
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 SC runs on the working-resolution copy and answers one question: **which image edges does the
 subject actually reach?** That verdict is what routing keys on ([§5](05-routing.md)).

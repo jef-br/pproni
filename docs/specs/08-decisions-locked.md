@@ -1,6 +1,6 @@
 # 8 · Decisions locked
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 - SC is the brain, and it is segmentation-based: a BiRefNet mask plus a two-pass gate/refine edge
   verdict.

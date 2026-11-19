@@ -1,6 +1,6 @@
 # Decided 2026-10-23: bars are always centred (user)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * Every bars case is `Centre`: the trimmed content is centred with equal white bands. `Decision::Crop`
   is gone.

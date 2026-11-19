@@ -1,6 +1,6 @@
 # 5. Single hardened exe, no install
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 **Pproni ships as one hardened executable with no installation step. This is a hard requirement.**
 

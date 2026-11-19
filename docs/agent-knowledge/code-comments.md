@@ -1,6 +1,6 @@
 # Code comments
 
-[Up: agent knowledge](TOC.md)
+[Up: agent knowledge](TOC-agent-knowledge.md)
 
 How much a comment in the Rust source says, and when it points to the docs instead. Applies to
 every `.rs` file. Checked by `python tools/check_comments.py` (see [Checks](#checks)); the
@@ -37,7 +37,7 @@ the comment points there.
 * Never delete information. If it is not in a doc yet, add it to the right doc first, then
   shorten the comment. When no existing doc fits, use the module's own page
   `docs/architecture/modules/<path-with-dashes>.md` (for `src/core/framing.rs`:
-  `docs/architecture/modules/core-framing.md`) and list it in [architecture TOC](../architecture/TOC.md).
+  `docs/architecture/modules/core-framing.md`) and list it in [architecture TOC](../architecture/TOC-architecture.md).
   A folder of small files may share one page named after the folder (`src/app/` →
   `docs/architecture/modules/app.md`), with one `##` section per file.
 

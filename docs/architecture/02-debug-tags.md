@@ -1,6 +1,6 @@
 # 2. Modules: debug tags (`PPRONI_DEBUG_TAGS` marker file)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 Off by default — the shipped exe writes a clean `<stem>.jpg`. Drop a file named `PPRONI_DEBUG_TAGS`
 next to the executable (content ignored, only presence matters; delete it to turn tagging back

@@ -1,6 +1,6 @@
 # 2. Modules: `core::shot_classifier`, the classifier
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 One module per job. `SegmentationModel` keeps the gate/refine logic independent of the ONNX
 binding, so it can also be exercised against a stand-in model in tests — real BiRefNet inference is

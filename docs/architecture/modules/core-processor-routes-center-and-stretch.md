@@ -1,6 +1,6 @@
 # core::processor::routes::center_and_stretch
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 R1's picture work: `mod.rs` (the grown silhouette, `apply`), `flatness.rs` (flat or textured
 background), `compose.rs` (the stretch), `grazes.rs` (lines the product grazes, and the second test), `patch.rs` (the patch fill for them), `solid.rs` (the solid-background look for creased flat backgrounds), `gradients.rs` (the flat-edge fade),

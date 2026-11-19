@@ -1,6 +1,6 @@
 # core::preprocessor
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/preprocessor/mod.rs` comments. Why the image is kept at two
 resolutions, and what the optimiser does to `model_input`:

@@ -1,6 +1,6 @@
 # core::preprocessor::maria_antonieta
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/preprocessor/maria_antonieta.rs` comments. The headcut decisions,
 the caller's gate and the section size are

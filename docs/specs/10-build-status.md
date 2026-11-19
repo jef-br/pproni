@@ -1,6 +1,6 @@
 # 10 · Build status
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 | Piece | State |
 |---|---|

@@ -1,6 +1,6 @@
 # Background statistics (outside the segmask)
 
-[Up: analysis](../TOC.md)
+[Up: analysis](../TOC-analysis.md)
 
 Measured 2026-10-30 on the 49 core images and the 13 shoes (3872 px). Blobs, colour spread and
 texture of everything outside the BiRefNet mask. Rows are sorted flattest first (by block std p90).

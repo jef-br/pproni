@@ -1,6 +1,6 @@
 # Pproni work state
 
-[Up: docs home](../TOC.md)
+[Up: docs home](../TOC-PProni.md)
 
 Read this first. Keep it short. Update it at the end of each work session.
 Last updated: 2026-11-19.

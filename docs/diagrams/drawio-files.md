@@ -1,6 +1,6 @@
 # Working with draw.io diagrams
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-diagrams.md)
 
 WYSIWYG diagrams for Pproni, edited as draw.io (diagrams.net) files — free, no account,
 no server.

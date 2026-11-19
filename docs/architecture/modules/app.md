@@ -1,6 +1,6 @@
 # app
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/app/` comments. The module table is
 [2. Modules: `app`](../02-modules-app.md).

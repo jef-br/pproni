@@ -1,6 +1,6 @@
 # core::config
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Each constant's unit and owner stay at the constant in `src/core/config.rs`. Where the constants are explained:
 

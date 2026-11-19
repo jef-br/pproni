@@ -11,14 +11,10 @@
             "id": "dde8eff79de844e6",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "work-state/2026-10-28-headcuts.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "2026-10-28-headcuts"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -99,7 +95,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "analysis/background-stats/TOC.md",
+                "file": "analysis/background-stats/TOC-analysis-background-stats.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +114,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "analysis/background-stats/TOC.md",
+                "file": "analysis/background-stats/TOC-analysis-background-stats.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -161,7 +157,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "analysis/background-stats/TOC.md",
+                "file": "analysis/background-stats/TOC-analysis-background-stats.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -190,9 +186,21 @@
   },
   "active": "dde8eff79de844e6",
   "lastOpenFiles": [
-    "work-state/TOC.md",
-    "TOC.md",
-    "notes/TOC.md",
+    "notes/TOC-notes.md",
+    "agent-knowledge/TOC-agent-knowledge.md",
+    "analysis/background-stats/TOC-analysis-background-stats.md",
+    "analysis/TOC-analysis.md",
+    "diagrams/TOC-diagrams.md",
+    "architecture/TOC-architecture.md",
+    "specs/TOC-specs.md",
+    "work-state/TOC-work-state.md",
+    "TOC-PProni.md",
+    "architecture/modules/TOC-module-architecture.md",
+    "TOC-PProni.md",
+    "architecture/TOC-architecture.md",
+    "work-state/2026-10-28-headcuts.md",
+    "work-state/TOC-work-state.md",
+    "notes/TOC-notes.md",
     "analysis/background-stats/images/masks_core/28--EIX=0010--BGC=f2f1ed--FGC=1f1e1b.jpg",
     "analysis/background-stats/images/masks_core/28___3-class_10_SEGMASK.png",
     "analysis/background-stats/images/masks_core/28___3-class_20_REFINE.png",
@@ -217,24 +225,12 @@
     "architecture/modules/core-config.md",
     "architecture/modules/core-preprocessor.md",
     "architecture/modules/core-shot-classifier-geometry.md",
-    "architecture/modules/core-shot-classifier-segmentation.md",
-    "architecture/modules/core-shot-classifier.md",
     "analysis/background-stats/images/sheet2.jpg",
     "analysis/background-stats/images/sheet1.jpg",
     "analysis/background-stats/images/shoes_in/104051800_det3.jpg",
     "analysis/background-stats/images/ov_core/6.jpg",
     "analysis/background-stats/images/ov_core/5.jpg",
     "analysis/background-stats/images/ov_core/4.jpg",
-    "analysis/background-stats/images/ov_core/3.jpg",
-    "analysis/background-stats/TOC.md",
-    "analysis/TOC.md",
-    "analysis/background-stats/method.md",
-    "analysis/background-stats/shoes.md",
-    "diagrams/TOC.md",
-    "diagrams/run-dir-tag-protocol.md",
-    "specs/09-open-questions.md",
-    "specs/10-build-status.md",
-    "architecture/modules/core-trace.md",
-    "architecture/modules/core-preprocessor-maria-antonieta.md"
+    "analysis/background-stats/images/ov_core/3.jpg"
   ]
 }

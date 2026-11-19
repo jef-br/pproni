@@ -17,7 +17,7 @@ For every comment block, in order:
 2. Is the rest already written in a doc? Search `docs/` (Grep). If it is, and says the same thing,
    replace the rest with `See docs/<folder>/<file>.md.`
 3. Not in any doc? Move it to your module page (create it: `# <module path>`, a line
-   `[Up: architecture](../TOC.md)`, then one `##` section per topic), word for word or tightened
+   `[Up: module pages](TOC-module-architecture.md)`, then one `##` section per topic), word for word or tightened
    without dropping a fact, then point there.
 4. If the same detail sits in two docs, do not pick: point to the one that is fuller, and report
    the duplicate.

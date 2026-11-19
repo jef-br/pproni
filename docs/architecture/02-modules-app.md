@@ -1,6 +1,6 @@
 # 2. Modules: `app`, the host shell
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 | Module | Surface | Notes |
 |---|---|---|

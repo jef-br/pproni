@@ -1,6 +1,6 @@
 # 1. Pipeline
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 `core::process_file` runs five stages in order, with a framing step (`core::framing`) between classify and dispatch. `app::batch::run` fans this over every image in the
 input folder with `rayon`; on success the source file is moved to the backup folder (`PPRONI-BACKUP`),

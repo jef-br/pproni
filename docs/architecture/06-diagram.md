@@ -1,6 +1,6 @@
 # 6. The diagram
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 **Maintenance rule:** one node per module, one node per `struct`/`enum`. Add a module or a public
 function → patch the diagram node in the same commit. A node with no matching file means the

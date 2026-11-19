@@ -1,6 +1,6 @@
 # core::framing
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/framing.rs` comments. The bars and frame rules themselves
 (`Keep`, `Centre`, `Peel`, their thresholds) are in [2. Modules: `core`](../02-modules-core.md).

@@ -1,6 +1,6 @@
 # core::shot_classifier::shotcode
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of `src/core/shot_classifier/shotcode.rs`. The tag itself (`EIX`/`BGC`/`FGC` file
 names) is described in [2. Modules: debug tags](../02-debug-tags.md).

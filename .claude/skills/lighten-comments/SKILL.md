@@ -54,7 +54,7 @@ If step 3 failed or step 4 found anything: send the findings to that batch's tri
 * A finding the trimmer disputes with a reason: do not loop on it; report both sides.
 
 ## 6. Finish
-1. List every new module page in `docs/architecture/TOC.md` (a "Module pages" table).
+1. List every new module page in `docs/architecture/modules/TOC-module-architecture.md` (its table of pages).
 2. `cargo check --all-targets` passes (a stray `///` with nothing after it fails to compile).
 3. `python tools/check_comments.py --base $BASE` over all targets, and `python tools/check_docs.py`.
 4. Report per file: comment lines before -> after, pointers added, module page written, open

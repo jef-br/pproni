@@ -1,6 +1,6 @@
 # 7 · Problem map
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 | # | Symptom | Status |
 |---|---|---|

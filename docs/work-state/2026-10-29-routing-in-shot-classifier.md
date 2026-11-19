@@ -1,6 +1,6 @@
 # Decided 2026-10-29: routing lives in the shot classifier (user)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * All decisions about which route runs and which plan it gets are made in `shot_classifier::route`
   (`decide`), then `send` hands the image to the route. `processor::routes::{center_and_stretch,

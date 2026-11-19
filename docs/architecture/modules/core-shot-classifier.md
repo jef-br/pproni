@@ -1,6 +1,6 @@
 # core::shot_classifier
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the small files in `src/core/shot_classifier/`: `mod.rs`, `gate.rs`,
 `cipher.rs` and `gpu_adapters.rs`. The two passes are [spec §3.1](../../specs/03-shot-classifier.md);

@@ -1,6 +1,6 @@
 # Agent knowledge base
 
-[Up: docs home](../TOC.md)
+[Up: docs home](../TOC-PProni.md)
 
 Should contain agreed, unambiguous facts the project's agents run on. One file per domain.
 If anything feels ambiguous, surface it as a question. Otherwise, treat them as ground truth.

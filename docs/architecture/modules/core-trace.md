@@ -1,6 +1,6 @@
 # core::trace
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 The per-stage debug trace, on only under the `PPRONI_DEBUG_TAGS` marker: [debug tags](../02-debug-tags.md).
 

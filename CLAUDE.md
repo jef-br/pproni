@@ -1,7 +1,7 @@
 # CLAUDE.md
 Project notes for any Claude session working in this repo.
-**Read `docs/work-state/TOC.md` first:** what is decided, rejected and still open.
-All docs start at `docs/TOC.md` (an Obsidian vault; every folder has its own table of contents).
+**Read `docs/work-state/TOC-work-state.md` first:** what is decided, rejected and still open.
+All docs start at `docs/TOC-PProni.md` (an Obsidian vault; every folder has its own table of contents).
 
 ## Ships as one hardened exe, no install
 A hard requirement, met — not optional, and never solved by putting a file beside the exe.

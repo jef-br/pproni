@@ -1,6 +1,6 @@
 # Decided (standing)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * The 512 model (`birefnet_lite_512.onnx`) is canonical — proven to work, and what `build.rs`
   bakes in (`MODEL_FILE`).

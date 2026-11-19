@@ -1,6 +1,6 @@
 # core::shot_classifier::segmentation
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/segmentation.rs` comments. Why the model is
 abstracted behind `SegmentationModel`: [2. Modules: `core::shot_classifier`](../02-modules-shot-classifier.md).

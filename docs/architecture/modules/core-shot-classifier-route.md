@@ -1,6 +1,6 @@
 # core::shot_classifier::route
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/route.rs` comments. The routes, R2's verdicts and
 why the bleed cases stay inside R1 are [spec §5 and §5.1](../../specs/05-routing.md). The decision to

@@ -1,6 +1,6 @@
 # core::shot_classifier::sampling
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of `src/core/shot_classifier/sampling.rs` and the `BoolSummedArea` doc in
 `src/core/shot_classifier/geometry.rs`. The module table is

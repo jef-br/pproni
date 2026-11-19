@@ -1,6 +1,6 @@
 # Decided 2026-10-23: one stretch function for all four edges, an even stretch (user)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * `compose::stretch_edge` is the only place R1 stretches, for all four edges alike.
 * Each line's background is stretched by one even scale. Nothing is invented: no mirror, no blur, no

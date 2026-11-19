@@ -1,6 +1,6 @@
 # 2. Modules: `core`, the imaging pipeline
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-architecture.md)
 
 | Module | Surface |
 |---|---|

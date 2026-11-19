@@ -1,6 +1,6 @@
 # Shoes (13)
 
-[Up: background statistics](TOC.md)
+[Up: background statistics](TOC-analysis-background-stats.md)
 
 Rows sorted flattest first (by block std p90). Overlay: grey = the mask grown by 2%, red/cyan = blobs.
 Columns: [how the numbers are made](method.md).

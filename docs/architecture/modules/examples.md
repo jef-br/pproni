@@ -1,6 +1,6 @@
 # examples
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 The two dev harnesses in `examples/`: `run_dir` (batch-runs the shot classifier) and
 `inspect_birefnet` (prints a model's tensors). Neither ships in the exe.

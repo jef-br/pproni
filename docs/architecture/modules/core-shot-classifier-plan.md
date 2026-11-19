@@ -1,6 +1,6 @@
 # core::shot_classifier::plan
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/plan.rs` comments. The sizing and placement rule
 and its worked example (28.jpg) are [spec §5.1](../../specs/05-routing.md).

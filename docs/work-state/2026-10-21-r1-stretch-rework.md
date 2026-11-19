@@ -1,6 +1,6 @@
 # Decided 2026-10-21: R1 stretch rework (code in `center_and_stretch/compose.rs`)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * R1 works one line at a time (a row for the left and right edge, a column for the top and bottom).
 * Product band = the silhouette grown by one clearance, `R1_FILL_SOURCE_CLEARANCE_WORKING_PX`.

@@ -1,6 +1,6 @@
 # 5 · Detection outcomes & routing `BUILT`
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 Three routes, keyed on the edge-intersection (EIX) verdict:
 

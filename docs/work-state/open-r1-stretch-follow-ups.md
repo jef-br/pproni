@@ -1,6 +1,6 @@
 # Open: R1 stretch/inpaint follow-ups (2026-10-16)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * **Lifestyle / ambiance detection** — 2026-09-21-0 (snowboarder on mountains) still outputs
   white where the gated edges land, because the local-BGC fallback correctly refuses the

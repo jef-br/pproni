@@ -1,6 +1,6 @@
 # core::runtime
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/runtime.rs` comments. Why the ONNX Runtime is carried inside
 the exe and unpacked rather than linked, and how it could be linked in later:

@@ -1,6 +1,6 @@
 # core::shot_classifier::refine
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/refine.rs` comments. Pass 2's steps are
 [spec §3.1](../../specs/03-shot-classifier.md); the module table is

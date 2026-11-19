@@ -1,6 +1,6 @@
 # core::exporter
 
-[Up: architecture](../TOC.md)
+[Up: module pages](TOC-module-architecture.md)
 
 The last pipeline stage: size envelope, JPEG save, original moved to the backup folder. Public
 surface: [module map](../02-modules-core.md). File names and segmask under the debug marker:

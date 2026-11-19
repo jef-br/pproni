@@ -1,6 +1,6 @@
 # Diagrams
 
-[Up: docs home](../TOC.md)
+[Up: docs home](../TOC-PProni.md)
 
 WYSIWYG diagrams for Pproni, edited as draw.io (diagrams.net) files — free, no account,
 no server.

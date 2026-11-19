@@ -1,6 +1,6 @@
 # run_dir: tagging a diagram Rectangle and naming its debug image
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-diagrams.md)
 
 The protocol lives on `examples/run_dir.rs`, which currently writes two snapshots
 (`SEGMASK`, `REFINE`). `JBA2B.drawio.svg` is the only diagram in this folder, so every

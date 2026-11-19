@@ -1,6 +1,6 @@
 # 1 · Principles & hard invariants
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-specs.md)
 
 - **KPI:** repositioning accuracy at high speed.
 - **Product is never distorted.** Only background is ever stretched.

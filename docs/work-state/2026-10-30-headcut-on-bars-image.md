@@ -1,6 +1,6 @@
 # Decided 2026-10-30: a headcut on a bars image leaves the bars out (user; code in `core::process_file`)
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * Bug: on 46 (white bars top and bottom) the headcut cut at the philtrum, `peel` threw the trims away, so
   the bars rule never saw the bars and R1 stretched them. Wanted: white bars, nothing more.

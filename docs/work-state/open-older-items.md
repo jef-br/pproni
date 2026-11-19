@@ -1,6 +1,6 @@
 # Open: older items
 
-[Up: table of contents](TOC.md)
+[Up: table of contents](TOC-work-state.md)
 
 * First run of the new trim on the 9 images in `JB core img batch` (old vs new exe, scratch): 8 give the
   same edge tags and colours. IMG_2619_indigo loses its mask (25.6% -> 0%): the crop (327x919 of

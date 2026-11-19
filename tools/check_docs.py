@@ -22,7 +22,7 @@ MDLINK = re.compile(r"!?\[(?:[^\]\[]|\[[^\]]*\])*\]\((<[^>]+>|[^)\s]+)(?:\s+\"[^
 WIKI = re.compile(r"!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\\?\|[^\]]*)?\]\]")
 PATH = re.compile(r"(?<![\w/.\-~])((?:docs|src|examples|tools|models|tests|\.claude)/[\w./\-*]*[\w*/])")
 HOME = re.compile(r"(~/\.claude/[\w./\-*]*\w)")
-BARE = re.compile(r"(?<![\w/.\-])((?:ARCHITECTURE|WORK_STATE|pproni-spec|README|TOC|toc|SKILL)\.md)\b")
+BARE = re.compile(r"(?<![\w/.\-])((?:ARCHITECTURE|WORK_STATE|pproni-spec|README|TOC-[\w\-]+|TOC|toc|SKILL)\.md)\b")
 URL = re.compile(r"https?://[^\s)>\]`'\"*]+")
 TICK = re.compile(r"`((?:docs|src|examples|tools|models|tests|\.claude)/[^`]*)`")
 
