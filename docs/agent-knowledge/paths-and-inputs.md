@@ -3,7 +3,7 @@
 ## The four folders (do not confuse them)
 
 - **`JB core img batch`** — `C:\Users\JefB\Documents\JBGITROOT\csp\JB core img batch`
-  The stable, always-relevant source set. Images are numbered `1.* … 49.*`
+  The stable, always-relevant source set. Images are numbered `1.* … 51.*`
   This is the library the runner pulls from. Contents curated by the user.
   Agents read, never delete.
 

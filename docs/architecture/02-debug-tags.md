@@ -17,7 +17,7 @@ are inside it. The segmask is upscaled nearest-neighbour to the output's size, s
 tagged output pixel-for-pixel.
 
 `EIX` is the 4-bit top-right-bottom-left edge string — always the classifier's real verdict, the
-same one `Route::select` routed on; `BGC`/`FGC` are the dominant background / weighted-median
+same one `route::decide` routed on; `BGC`/`FGC` are the dominant background / weighted-median
 foreground colours, each emitted only when sampleable. `=` stands in for the spec's `:` (illegal in
 Windows filenames). `EIX` comes from `shot_classifier::shotcode::eix_bits`; `BGC`/`FGC` are sampled
 once, by `exporter::colors`, from the true-colour `working` copy and the mask — never from

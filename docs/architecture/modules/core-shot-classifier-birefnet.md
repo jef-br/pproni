@@ -23,7 +23,7 @@ Verified against exported `BiRefNet_lite` ONNX models:
 
 ## Why the shipped model has no `DeformConv`
 BiRefNet's decoder uses deformable convolutions. A stock export makes them a single native
-`DeformConv` op, which DirectML cannot run. On the `PProni-GPU` branch the shipped model has those 20
+`DeformConv` op, which DirectML cannot run. The shipped model (the GPU work was merged into `main` on 2026-11-19, version 2.4.0) has those 20
 nodes rewritten as `GridSample` + `Conv` (same weights, same maths — masks match the original to
 float rounding), so the one embedded model runs on a graphics card or on the CPU.
 

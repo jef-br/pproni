@@ -2,8 +2,9 @@
 
 [Up: table of contents](TOC.md)
 
-Built on branch `flat-bg-gradients` from the user's hand-made targets (23 shoe photos) and pseudo-code.
-Code: `center_and_stretch/flatness.rs`, `compose.rs`, `gradients.rs`; how it works: [module page](../architecture/modules/core-processor-routes-center-and-stretch.md).
+Built on branch `flat-bg-gradients` from the user's hand-made targets (23 shoe photos) and pseudo-code. Merged into
+`main` as version 2.4.0 on 2026-11-19; the branch is deleted. Code: `center_and_stretch/flatness.rs`, `compose.rs`,
+`gradients.rs`, `grazes.rs`, `patch.rs`, `solid.rs`; how it works: [module page](../architecture/modules/core-processor-routes-center-and-stretch.md).
 
 ## One gate: is the background flat?
 * `flatness::is_flat` decides two things. Flat: the stretch starts at the subject's box and the edge
@@ -42,10 +43,9 @@ Code: `center_and_stretch/flatness.rs`, `compose.rs`, `gradients.rs`; how it wor
   margin. No mirroring. Context for matching and healing: every real non-product pixel next to the gap.
 * Tolerance 3 levels is my proposal (p5-p95 of the 5-px-smoothed edge line); the user has not confirmed it.
   Measured: flat cores 0-13, 51 top 11-14, 50 65-100.
-* Open: core 22 got a darker bottom than PProni-GPU (234 against 241-245). The overhang is filled with the
-  global BGC (ebebeb), and the second test keeps it. Present since run 2. Awaiting the user's call on filling
-  from the edge pixel line instead of the global BGC.
-* Open: core 51 still shows jagged stretch in the safe overhang beside the gaps (the user's next target).
+* Resolved 2026-11-18/19: core 22's darker bottom (234 against 241-245) came from the gradients' one global
+  colour, not from the BGC fill; fixed by the local colours under "The gradients". Core 51's jagged stretch beside
+  the gaps is fixed by the solid-background look below.
 * Code: `patch.rs`, `grazes.rs` (`Blocked::choose_fill`), `compose.rs` (`compose_with_holes`), `mod.rs`.
 
 ## The gradients
@@ -70,9 +70,12 @@ Code: `center_and_stretch/flatness.rs`, `compose.rs`, `gradients.rs`; how it wor
   still showed the old stretch's streaks. Fixed by the flat gate and the flat stretch above; a review run is pending.
 * Core 17: parked by the user; it looked alright. Core 34 and 35 (overhang 7 and 2 px): alright.
 
-## Open
-* Review of the second run (flat gate + flat stretch). The gate also moves 23, 33, 35, 40 and 48 into flat mode.
-* The diagram (`JBA2B`) is on hold on this branch.
+## Open (2026-11-19)
+* The tolerance of 3 levels for the second test is my proposal; the user has not confirmed it.
+* The solid-background look's threshold (steepest step 0.5) rests on three images (34, 51, the loafers 104388854_det3).
+* The diagram `JBA2B` was synced on 2026-11-19 (one node per struct and enum, each linked to its `.rs` file). Types
+  used in another part of Pproni, like `Shot` or `Mask`, link only to their defining file; the long cross-lane lines
+  are not drawn.
 
 ## The solid-background look (user, 2026-11-19)
 * Core 51 (wrinkled paper) stayed botched after the patch fill: the jagged part is the stretched overhang, not the

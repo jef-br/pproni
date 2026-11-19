@@ -14,7 +14,7 @@ Three routes, keyed on the shot classifier's verdict:
 the *inside* of these routes. Four of its bleed rows are one rule seen from four angles, and
 `center_and_stretch` applies that rule: a bled edge is pinned, an axis with a free side takes the
 margin, and the slack goes to the free sides. Choosing among them is a behaviour, not a routing
-decision, so it never reaches `Route::select`. Only the full bleed leaves R1, because with all four
+decision, so it never reaches `route::decide`. Only the full bleed leaves R1, because with all four
 edges blocked there is no background anywhere to stretch from.
 
 R3 has no spec row. It is the answer to "we don't know": nothing cropped, nothing scaled, so a wrong

@@ -20,3 +20,5 @@
 * **BGC confidence** — `colors::sample` returns a binary pass/fail. R1 now judges per line whether
   the BGC is "close enough" (inside the nearby background's min/max), so a weak BGC is simply not
   believed there. A dominant-cluster fraction is no longer needed for R1.
+* **Open 2026-11-19:** the second test's tolerance (3 levels) and the solid-background look's threshold (steepest
+  step 0.5) are unconfirmed or rest on three images. Details: [2026-11-13 note](2026-11-13-flat-edge-gradients.md).

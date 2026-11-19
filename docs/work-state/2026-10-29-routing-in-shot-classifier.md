@@ -17,10 +17,10 @@
   the only differences are those 7 shoes and the header label of 30, 43, 44 (R1 -> R3, same pictures).
 * Three bled edges: no longer "R1 takes them". For a square subject every case with top+bottom or left+right bled
   (bar the two R2 cases) has no legal square and goes to R3 (30, 43, 44). `route.rs` has a test that says so.
-* Open: diagram (`JBA2B.drawio.svg`) not yet patched for `route`/`plan`, waiting for the user to confirm the
-  code. The architecture docs ([stages table](../architecture/01-pipeline.md), [module map](../architecture/02-modules-core.md),
-  [R1/R2 table](../architecture/03-routing.md), `Route::select` mentions) and the `MASK_MIN_COVERAGE` row of
-  the R2 table in [spec §5](../specs/05-routing.md) (line 117 of the old single-file spec) still describe the old layout.
+* Done 2026-11-19: the diagram (`JBA2B.drawio.svg`) was synced with the code, and the `Route::select` mentions in the
+  architecture docs ([module map](../architecture/02-modules-core.md), [R1/R2 table](../architecture/03-routing.md),
+  [debug tags](../architecture/02-debug-tags.md)) now say `route::decide`. Not re-checked: the `MASK_MIN_COVERAGE` row of
+  the R2 table in [spec §5](../specs/05-routing.md) (line 117 of the old single-file spec).
 * Open, PARKED 2026-10-29 for the morning: the user sees pproni "stuck" when headcutting is chosen. Not
   reproduced (batch, real console, and the desktop flow on a scratch Desktop all finish in ~15 s). Ask first:
   which screen, what was typed (`ask_yes_no` re-asks silently on anything but Y/N), which exe, does N work.
