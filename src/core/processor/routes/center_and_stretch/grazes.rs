@@ -32,6 +32,11 @@ pub struct Edges {
 }
 
 impl Blocked {
+    /// Does any edge have a blocked line?
+    pub fn any(&self) -> bool {
+        [&self.top, &self.bottom, &self.left, &self.right].iter().any(|v| v.iter().any(|&b| b))
+    }
+
     /// The second test, per edge that has blocked lines. The edge is flat, and its lines get a plain
     /// colour or ramp, when a background colour (`bgc`) was found, or when the outermost pixel line of `src`
     /// (its safe lines only) spans at most `R1_GRAZE_FLAT_TOLERANCE` levels. Any other edge, with variance,

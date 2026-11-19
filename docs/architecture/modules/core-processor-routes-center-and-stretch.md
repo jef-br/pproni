@@ -3,7 +3,7 @@
 [Up: architecture](../TOC.md)
 
 R1's picture work: `mod.rs` (the grown silhouette, `apply`), `flatness.rs` (flat or textured
-background), `compose.rs` (the stretch), `grazes.rs` (lines the product grazes, and the second test), `patch.rs` (the patch fill for them), `gradients.rs` (the flat-edge fade),
+background), `compose.rs` (the stretch), `grazes.rs` (lines the product grazes, and the second test), `patch.rs` (the patch fill for them), `solid.rs` (the solid-background look for creased flat backgrounds), `gradients.rs` (the flat-edge fade),
 `extend.rs` (the textured-scene reframe) and `inpaint.rs` (the flat fill). How each one works is
 below. The decisions behind the stretch:
 [one stretch function](../../work-state/2026-10-23-one-stretch-function.md).
@@ -223,6 +223,20 @@ flagged (`class.refinements`), a line of the original is *blocked* when the mask
 line's overhang empty (its real pixels stay) and fills every run of blocked lines afterwards, between the
 nearest unblocked line each side. Edges the gate did not flag are untouched, so images with no flagged
 edge (core 25-27) cannot change.
+**The solid-background look (`solid.rs`, user 2026-11-19).** For a flat background that is creased (core 51's
+studio paper, the loafers 104388854_det3) the stretch smears the creases, so everything but the product is
+painted in the background's predominant colour. Used when all four hold: the flat gate says flat, no BGC was
+found, a flagged edge has blocked lines, and `flatness::crease_step` is above `R1_SOLID_CREASE_STEP` (0.5).
+`crease_step` is the 99th percentile of the difference between adjacent luma pixels over the background
+(1 px blur, mask grid): 0.36 for core 34's smooth floor, 0.64 for 51, 0.62 for the loafers. Such an image gets
+no patch fill. After `compose` and the gradients, `solid::apply` keeps, per canvas pixel, a share `K`: the
+product (mask plus `R1_SOLID_MARGIN_PX`, feathered) and a shadow band under it. The band is the mask moved down
+by `R1_SOLID_SHADOW_SHARE` of the grid's side minus the mask, blurred down the same length, Gaussian
+(`R1_SOLID_BLUR_SIGMA_SHARE`), scaled so the strip next to the mask reads 1, and faded off over the first third
+of the mask's height (`R1_SOLID_RAMP_START`/`END`) so no halo forms at the top. Everything else is the colour,
+the per-channel median of the working picture outside the mask and its `R1_FLAT_BLOCK_GAP_PX` gap. Work is
+on the mask's grid and `K` is read back bilinearly, so the canvas size does not matter.
+
 **The second test (`Blocked::choose_fill`).** Per edge that has blocked lines, decided before `compose`:
 the edge is *flat* when a background colour (`bgc`) was found, or when its outermost pixel line (safe
 lines only, smoothed over 5 px) spans at most `R1_GRAZE_FLAT_TOLERANCE` levels between the 5th and 95th

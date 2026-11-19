@@ -18,6 +18,7 @@ pub mod gradients;
 pub mod grazes;
 pub mod inpaint;
 pub mod patch;
+pub mod solid;
 
 use super::super::super::config;
 use super::super::super::preprocessor::Prepared;
@@ -190,7 +191,15 @@ pub fn apply(prep: &Prepared, shot: Shot<'_>, job: R1Job) -> RgbImage {
             // second test decides, per edge, how they are filled: a plain ramp, or the patch fill below.
             let flagged: Vec<_> = shot.class.refinements.iter().map(|r| r.edge).collect();
             let mut blocked = grazes::blocked_lines(shot.mask, &flagged, prep.original.dimensions());
-            blocked.choose_fill(&prep.original, shot.bgc);
+            // A flat background that is creased, with no background colour found and a graze: the
+            // solid-background look paints over the whole overhang, so it needs no patch fill.
+            let solid = flat_box.is_some()
+                && shot.bgc.is_none()
+                && blocked.any()
+                && flatness::crease_step(&prep.original, shot.mask).is_some_and(|s| s > config::R1_SOLID_CREASE_STEP);
+            if !solid {
+                blocked.choose_fill(&prep.original, shot.bgc);
+            }
             let (mut canvas, gaps) =
                 compose::compose_with_holes(&prep.original, &plan, &silhouette, shot.bgc, flat_box, Some(&blocked));
             if let Some(subject) = flat_box {
@@ -213,6 +222,9 @@ pub fn apply(prep: &Prepared, shot: Shot<'_>, job: R1Job) -> RgbImage {
                     margin_px: clearance_px(prep),
                 };
                 patch::fill(&mut canvas, &gaps, &scene);
+            }
+            if solid {
+                solid::apply(&mut canvas, &prep.working, shot.mask, (plan.x, plan.y), prep.original.dimensions());
             }
             canvas
         }

@@ -184,6 +184,30 @@ pub const R1_PATCH_CANDIDATES: usize = 4000;
 /// anti-aliased edge).
 pub const R1_PATCH_PRODUCT_EDGE_PX: u32 = 2;
 
+// ---- R1 · the solid-background look (creased flat backgrounds) ---------------------------------
+//
+// `center_and_stretch::solid`. Used when the flat gate says flat, no background colour was found, a
+// flagged edge has grazed lines, and the background is creased. The sizes are shares of the canvas, in
+// the mask's pixels. See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// The background is creased when its steepest step (the 99th percentile of the difference between
+/// adjacent luma pixels, after a 1 px blur, on the mask's grid) is above this. Core 34's smooth floor
+/// measures 0.36, 51's creases 0.64, the loafers' 0.62; a cut at 0.5 is the user's choice of 2026-11-19.
+pub const R1_SOLID_CREASE_STEP: f32 = 0.5;
+
+/// The product's margin and feather, in mask pixels.
+pub const R1_SOLID_MARGIN_PX: usize = 1;
+pub const R1_SOLID_FEATHER_SIGMA: f32 = 0.5;
+
+/// The shadow band: the mask moves down by this share of the grid's side (also the length of the
+/// blur down), then a Gaussian of `R1_SOLID_BLUR_SIGMA_SHARE`. 40 px and 20 px on a 2000 px output.
+pub const R1_SOLID_SHADOW_SHARE: f32 = 0.02;
+pub const R1_SOLID_BLUR_SIGMA_SHARE: f32 = 0.01;
+
+/// The band is off down to this share of the mask's height and fully on from the second share.
+pub const R1_SOLID_RAMP_START: f32 = 0.33;
+pub const R1_SOLID_RAMP_END: f32 = 0.66;
+
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
 //
 // A preprocessor-stage primitive, upstream of the mask. Working values, tuned only when an image shows a problem.

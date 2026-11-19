@@ -149,7 +149,7 @@ fn fill_gap(canvas: &mut RgbImage, hole: &[bool], gap: &Gap, scene: &Scene<'_>) 
 }
 
 /// Grow `m` by a disc of radius `r`, exactly, one run of set pixels at a time.
-fn dilate(m: &[bool], w: usize, h: usize, r: usize) -> Vec<bool> {
+pub(super) fn dilate(m: &[bool], w: usize, h: usize, r: usize) -> Vec<bool> {
     if r == 0 {
         return m.to_vec();
     }

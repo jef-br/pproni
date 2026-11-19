@@ -60,8 +60,43 @@ pub fn rough_share(original: &RgbImage, mask: &Mask) -> Option<f32> {
     (clean > 0).then(|| rough as f32 / clean as f32)
 }
 
+/// How creased the background is: its steepest step, the 99th percentile of the difference between
+/// adjacent luma pixels over the background (no mask pixel within `R1_FLAT_BLOCK_GAP_PX`), after a 1 px
+/// blur so JPEG noise does not count, measured at the mask's own size. A smooth floor gradient stays low,
+/// paper creases do not. `None` with too few background pixels.
+pub fn crease_step(original: &RgbImage, mask: &Mask) -> Option<f32> {
+    let (w, h) = (mask.width as usize, mask.height as usize);
+    if w < 3 || h < 3 {
+        return None;
+    }
+    let luma = gaussian(&luma_at(original, mask.width, mask.height), w, h, 1.0);
+    let on: Vec<bool> = mask.data.iter().map(|&v| v != 0).collect();
+    let near = super::patch::dilate(&on, w, h, config::R1_FLAT_BLOCK_GAP_PX as usize);
+    let mut steps: Vec<f32> = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if near[i] {
+                continue;
+            }
+            if x + 1 < w && !near[i + 1] {
+                steps.push((luma[i + 1] - luma[i]).abs());
+            }
+            if y + 1 < h && !near[i + w] {
+                steps.push((luma[i + w] - luma[i]).abs());
+            }
+        }
+    }
+    if steps.len() < 1000 {
+        return None;
+    }
+    let q = (steps.len() * 99 / 100).min(steps.len() - 1);
+    steps.select_nth_unstable_by(q, |a, b| a.total_cmp(b));
+    Some(steps[q])
+}
+
 /// Luma of `img` resized to `w x h` (not resized when it already is that size).
-fn luma_at(img: &RgbImage, w: u32, h: u32) -> Vec<f32> {
+pub(super) fn luma_at(img: &RgbImage, w: u32, h: u32) -> Vec<f32> {
     let resized;
     let img = if img.dimensions() == (w, h) {
         img
@@ -73,7 +108,7 @@ fn luma_at(img: &RgbImage, w: u32, h: u32) -> Vec<f32> {
 }
 
 /// Separable Gaussian blur, the edge pixel repeated past the border.
-fn gaussian(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+pub(super) fn gaussian(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
     let radius = (3.0 * sigma).ceil() as i64;
     let mut kernel: Vec<f32> = (-radius..=radius).map(|i| (-((i * i) as f32) / (2.0 * sigma * sigma)).exp()).collect();
     let total: f32 = kernel.iter().sum();
@@ -156,6 +191,16 @@ mod tests {
         assert!(is_flat(&img, &mask));
         let (img, mask) = scene(1000, 800, SUBJECT, |x, _| (60 + x / 8) as u8);
         assert!(is_flat(&img, &mask), "a slow ramp is not texture");
+    }
+
+    #[test]
+    fn a_smooth_floor_has_a_low_steepest_step_and_paper_creases_a_high_one() {
+        let (img, mask) = scene(1000, 800, SUBJECT, |x, _| (180 + x / 20) as u8);
+        let smooth = crease_step(&img, &mask).expect("a background");
+        let (img, mask) = scene(1000, 800, SUBJECT, |x, _| if (x / 30) % 2 == 0 { 200 } else { 214 });
+        let creased = crease_step(&img, &mask).expect("a background");
+        assert!(smooth < config::R1_SOLID_CREASE_STEP, "smooth {smooth}");
+        assert!(creased > config::R1_SOLID_CREASE_STEP, "creased {creased}");
     }
 
     #[test]

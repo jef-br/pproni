@@ -73,3 +73,15 @@ Code: `center_and_stretch/flatness.rs`, `compose.rs`, `gradients.rs`; how it wor
 ## Open
 * Review of the second run (flat gate + flat stretch). The gate also moves 23, 33, 35, 40 and 48 into flat mode.
 * The diagram (`JBA2B`) is on hold on this branch.
+
+## The solid-background look (user, 2026-11-19)
+* Core 51 (wrinkled paper) stayed botched after the patch fill: the jagged part is the stretched overhang, not the
+  gaps. The user's idea: paint everything but the product in the predominant background colour, keeping the
+  product (mask + 2 px, 1 px feather) and the soft shadow under it. The shadow band is the user's recipe: mask
+  moved down 40 px minus the mask, 40 px blur down, 20 px Gaussian, 100% next to the mask, black ramp from 33% to
+  66% of the mask's height. Sizes are shares of the canvas (2% and 1% of a 2000 px side).
+* Isolation (user said yes): flat gate flat + no BGC + a grazed edge + steepest step above 0.5. Measured: 34 (smooth
+  floor) 0.36, 51 0.64, loafers 104388854_det3 0.62. Other measures (colour share, luma spread) ranked 34 as less flat
+  than 51 and were dropped. Only three images pass the first three tests, so the threshold rests on little data.
+* Effect on the core set: only 51 and 104388854_det3 changed. Code: `solid.rs`, `flatness::crease_step`, `mod.rs`.
+
