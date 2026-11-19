@@ -18,6 +18,11 @@ diagram drifted.
 against the current code, so the maintenance rule at the top of this page applies again — add a
 module or a public function, patch its node in the same commit.
 
+Each `struct` and `enum` the diagram shows has its own node, inside the container of the module that defines it and
+labelled with that module's path (e.g. `shot_classifier::route` / `enum Route`). Private helper structs
+(`Diagonal`, `EdgeJob`, `Gap`, the random generators) and `Optimised`, `Decoded`, `ShotColors`,
+`ShotInputs`, `EdgeProximity`, `EdgeRefinement`, `Instance` are not drawn yet.
+
 What each container now says:
 
 - **App** — launch, `core::preflight` (unpack the embedded runtime, build the BiRefNet and headcut
