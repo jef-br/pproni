@@ -10,7 +10,6 @@ pub fn desktop_dir() -> PathBuf {
     if let Some(p) = known_desktop() {
         return p;
     }
-    // Fallback: %USERPROFILE%\Desktop.
     if let Ok(profile) = std::env::var("USERPROFILE") {
         return PathBuf::from(profile).join("Desktop");
     }

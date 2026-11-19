@@ -1,41 +1,42 @@
-//! R1 fallback: fill a segment of a line that has no background to stretch from.
-//!
-//! A line (a row in pass 1, a column in pass 2) is *fully bled* on one side when the product,
-//! grown by the clearance, runs to the border there: there is nothing to stretch and nothing to
-//! invent from. Those segments land here and get a flat BGC-or-white fill; the caller may then
-//! replace them with a clean neighbouring line's background. Every line that does have a source
-//! stays with [`super::compose`]; this module never touches them.
-//!
-//! The context-colour fills ([`fill_segment`]'s `left_ctx`/`right_ctx` arms) are not used by R1 any
-//! more. If a wider inpainter proves necessary (narrow-band Telea / fast-marching, or an ONNX
-//! LaMa-style model), it slots in here behind the same [`fill_segment`] signature.
+//! R1 fallback: a flat BGC-or-white fill for a segment of a line that has no background to stretch
+//! from (*fully bled*). Lines with a source stay with [`super::compose`]. R1 does not use
+//! [`fill_segment`]'s `left_ctx`/`right_ctx` arms.
+//! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 use image::Rgb;
 
 use super::super::super::super::config;
 
-/// Fill `out` for one unstretchable sub-range of a scanline, choosing the strategy from whichever
-/// neighbour context is present.
+/// Fill `out`, one unstretchable sub-range of a line, from whichever neighbour context is present.
 ///
-/// * `left_ctx` / `right_ctx` — the final pixels of the two stretched runs sitting against this
-///   sub-range in the output line, or `None` when the sub-range sits at the end of the outer
-///   segment with nothing beyond it. "Left" means the lower output index; which image edge that
-///   lands on depends on the pass and the segment.
-/// * `bgc` — the global or per-edge background colour, when one was found. `None` falls through
-///   to a flat white fill, matching R3's default canvas colour.
+/// * `left_ctx` / `right_ctx` — the end pixels of the stretched runs either side of the sub-range
+///   ("left" = lower output index, whatever image edge that is), or `None` at the segment's end.
+/// * `bgc` — the global or per-edge background colour, if found; `None` gives flat white (R3's canvas).
 ///
-/// Noise is added at the standard deviation set by [`config::R1_INPAINT_NOISE_SIGMA`] so a flat
-/// fill does not read as a dead-flat seam against the JPEG-noisy stretched columns next to it.
+/// Adds uniform noise of amplitude [`config::R1_INPAINT_NOISE_SIGMA`], so the fill is not a
+/// dead-flat seam against the JPEG-noisy stretched pixels.
 pub fn fill_segment(
     out: &mut [Rgb<u8>],
     left_ctx: Option<Rgb<u8>>,
     right_ctx: Option<Rgb<u8>>,
     bgc: Option<Rgb<u8>>,
 ) {
+    fill_segment_with_noise(out, left_ctx, right_ctx, bgc, config::R1_INPAINT_NOISE_SIGMA);
+}
+
+/// [`fill_segment`] with the noise amplitude given. `0.0` adds none: one colour on both sides stays that
+/// exact colour, two colours give a plain ramp. R1 uses that on a flat background, where noise would show
+/// as stripes (the noise is seeded by the two colours, so a flat wall gives the same pattern on every line).
+pub fn fill_segment_with_noise(
+    out: &mut [Rgb<u8>],
+    left_ctx: Option<Rgb<u8>>,
+    right_ctx: Option<Rgb<u8>>,
+    bgc: Option<Rgb<u8>>,
+    noise_sigma: f32,
+) {
     if out.is_empty() {
         return;
     }
-    let noise_sigma = config::R1_INPAINT_NOISE_SIGMA;
     match (left_ctx, right_ctx) {
         (Some(a), Some(b)) => lerp_fill(out, a, b, noise_sigma),
         (Some(a), None) => flat_fill(out, a, noise_sigma),
@@ -76,7 +77,7 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8
 }
 
-/// Approximate N(0, sigma) jitter from a signed byte roll in [-128, 127].
+/// Uniform jitter of up to about ±`sigma`, from a signed byte roll in [-128, 127].
 fn jitter(v: u8, sigma: f32, roll: i8) -> u8 {
     if sigma <= 0.0 {
         return v;
@@ -86,8 +87,7 @@ fn jitter(v: u8, sigma: f32, roll: i8) -> u8 {
     (v as f32 + d).round().clamp(0.0, 255.0) as u8
 }
 
-/// A tiny deterministic PRNG seeded by the context colours and segment length — so repeated runs
-/// of the same inpaint produce the same output, which keeps the output image deterministic.
+/// A tiny xorshift PRNG seeded by the context colours and segment length: same input, same fill.
 struct TinyRng(u64);
 
 impl TinyRng {
@@ -135,6 +135,20 @@ mod tests {
                 assert!((0..=210).contains(&v), "channel out of range: {v}");
             }
         }
+    }
+
+    #[test]
+    fn with_no_noise_one_colour_stays_exact_and_two_colours_give_a_plain_ramp() {
+        let c = Rgb([120, 130, 140]);
+        let mut out = vec![Rgb([0, 0, 0]); 50];
+        fill_segment_with_noise(&mut out, Some(c), Some(c), None, 0.0);
+        assert!(out.iter().all(|&p| p == c), "same colour both sides must stay that exact colour");
+        fill_segment_with_noise(&mut out, Some(c), None, None, 0.0);
+        assert!(out.iter().all(|&p| p == c), "one side only must copy it exactly");
+
+        let mut ramp = vec![Rgb([0, 0, 0]); 3];
+        fill_segment_with_noise(&mut ramp, Some(Rgb([100, 0, 0])), Some(Rgb([200, 0, 0])), None, 0.0);
+        assert_eq!(ramp.iter().map(|p| p.0[0]).collect::<Vec<_>>(), vec![125, 150, 175]);
     }
 
     #[test]

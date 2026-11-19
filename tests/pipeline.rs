@@ -1,11 +1,10 @@
-//! Integration tests for the imaging core.
-//!
-//! The detection/geometry tests that used to live here were retired with the classical detector.
-//! What survives is the export invariant, which is independent of routing: every JPEG Pproni writes
-//! carries an embedded sRGB ICC profile and decodes back at the size it was written.
+//! Integration tests for the imaging core. The export invariant, independent of routing: every
+//! JPEG Pproni writes embeds an sRGB ICC profile and decodes back at the size it was written.
+//! What else it covers: see docs/architecture/modules/tests.md.
 
 use pproni::core::config::WORKING_SIZE;
 use pproni::core::exporter::save;
+use pproni::core::options::Options;
 use pproni::core::preprocessor as load;
 use image::{Rgb, Rgba, RgbaImage};
 use std::path::{Path, PathBuf};
@@ -19,7 +18,7 @@ fn fixture(name: &str) -> PathBuf {
 #[test]
 fn saved_jpeg_embeds_icc_and_reads_back_at_size() {
     for name in ["packshot_white.jpg", "packshot_tan.jpg", "hardshadow.jpg"] {
-        let prep = load::prepare(&fixture(name)).unwrap();
+        let prep = load::prepare(&fixture(name), &Options::default()).unwrap();
         let tmp = std::env::temp_dir().join(format!("pproni_test_icc_{name}"));
         save::save_jpeg_srgb(&prep.original, &tmp, 95).unwrap();
 
@@ -39,7 +38,7 @@ fn saved_jpeg_embeds_icc_and_reads_back_at_size() {
 #[test]
 fn working_copy_is_bounded_and_keeps_aspect_ratio() {
     for name in ["packshot_white.jpg", "packshot_tan.jpg", "hardshadow.jpg"] {
-        let prep = load::prepare(&fixture(name)).unwrap();
+        let prep = load::prepare(&fixture(name), &Options::default()).unwrap();
         let (ow, oh) = (prep.original.width(), prep.original.height());
         let (ww, wh) = (prep.working.width(), prep.working.height());
 
@@ -74,7 +73,7 @@ fn transparent_pixels_become_white() {
     let tmp = std::env::temp_dir().join("pproni_test_alpha_flatten.png");
     img.save(&tmp).unwrap();
 
-    let prep = load::prepare(&tmp).unwrap();
+    let prep = load::prepare(&tmp, &Options::default()).unwrap();
     assert_eq!(*prep.original.get_pixel(5, 5), Rgb([255, 255, 255]));
     assert_eq!(*prep.original.get_pixel(50, 40), Rgb([200, 30, 30]));
     let _ = std::fs::remove_file(&tmp);

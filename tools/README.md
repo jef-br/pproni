@@ -11,6 +11,15 @@ in `models/`; nothing reads one from anywhere else.
 | `3. quantize_int8.py` | Static int8 quantization, calibrated on the garment set. The settings in it are load-bearing and documented in its docstring. |
 | `4. compare_models.py` | A/B any two exports: throughput under Pproni's real concurrency model, plus mask IoU against the first. |
 
+## Doc and comment checks
+
+Not part of the model pipeline. Both run from the repo root and need only Python.
+
+| Script | Does |
+|---|---|
+| `check_docs.py` | Finds every link and written-out path in the repo's text files and checks it resolves. Known non-links are listed in `check_docs_allow.tsv` with the reason. |
+| `check_comments.py` | Checks comment edits in `.rs` files against `docs/agent-knowledge/code-comments.md`: code unchanged, doc pointers resolve, nothing lost, sizes. |
+
 ## Rebuilding the shipped model from scratch
 
 ```

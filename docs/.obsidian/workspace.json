@@ -1,0 +1,240 @@
+{
+  "main": {
+    "id": "f8d60b204724c354",
+    "type": "split",
+    "children": [
+      {
+        "id": "7be82ddc2876306c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dde8eff79de844e6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "work-state/2026-10-28-headcuts.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "2026-10-28-headcuts"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e9d367e1bd5eb5ed",
+    "type": "split",
+    "children": [
+      {
+        "id": "3b68d1946d4be5be",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5520e460c1703ad2",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "ebf6bd0772594372",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "2f9bfd72c86ae663",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 430.5
+  },
+  "right": {
+    "id": "250c5c493e1f887f",
+    "type": "split",
+    "children": [
+      {
+        "id": "b6ad82c4437fa216",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f4ed79f01538b4fb",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "c2b15a701552932d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "d6e80b1b3aa60807",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "e6bc6312966856e3",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "cc15d6245aa65058",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "analysis/background-stats/TOC.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "dde8eff79de844e6",
+  "lastOpenFiles": [
+    "work-state/TOC.md",
+    "TOC.md",
+    "notes/TOC.md",
+    "analysis/background-stats/images/masks_core/28--EIX=0010--BGC=f2f1ed--FGC=1f1e1b.jpg",
+    "analysis/background-stats/images/masks_core/28___3-class_10_SEGMASK.png",
+    "analysis/background-stats/images/masks_core/28___3-class_20_REFINE.png",
+    "architecture/02-modules-shot-classifier.md",
+    "architecture/02-modules-app.md",
+    "architecture/sed6zlvuY",
+    "analysis/background-stats/core-set.md",
+    "architecture/modules/core-processor-routes-center-and-stretch.md.tmp.28760.2252a4bd852e",
+    "work-state/sedg5Oda5",
+    "architecture/modules/main.md",
+    "architecture/modules/main.md.tmp.28760.927bbb0d6152",
+    "architecture/modules/core.md",
+    "architecture/modules/core.md.tmp.28760.2704582aea93",
+    "architecture/modules/core-runtime.md",
+    "architecture/modules/core-runtime.md.tmp.28760.8b726562ed1e",
+    "architecture/modules/core-processor-routes-center-and-stretch.md.tmp.28760.39ff74e2b325",
+    "architecture/modules/core-shot-classifier-plan.md.tmp.28760.399488464b0d",
+    "architecture/modules/core-processor-routes-center-and-stretch.md.tmp.28760.4bec2a453f8c",
+    "architecture/modules/core-shot-classifier-plan.md",
+    "architecture/modules/core-shot-classifier-plan.md.tmp.28760.65fbd068e211",
+    "architecture/modules/core-framing.md",
+    "architecture/modules/core-config.md",
+    "architecture/modules/core-preprocessor.md",
+    "architecture/modules/core-shot-classifier-geometry.md",
+    "architecture/modules/core-shot-classifier-segmentation.md",
+    "architecture/modules/core-shot-classifier.md",
+    "analysis/background-stats/images/sheet2.jpg",
+    "analysis/background-stats/images/sheet1.jpg",
+    "analysis/background-stats/images/shoes_in/104051800_det3.jpg",
+    "analysis/background-stats/images/ov_core/6.jpg",
+    "analysis/background-stats/images/ov_core/5.jpg",
+    "analysis/background-stats/images/ov_core/4.jpg",
+    "analysis/background-stats/images/ov_core/3.jpg",
+    "analysis/background-stats/TOC.md",
+    "analysis/TOC.md",
+    "analysis/background-stats/method.md",
+    "analysis/background-stats/shoes.md",
+    "diagrams/TOC.md",
+    "diagrams/run-dir-tag-protocol.md",
+    "specs/09-open-questions.md",
+    "specs/10-build-status.md",
+    "architecture/modules/core-trace.md",
+    "architecture/modules/core-preprocessor-maria-antonieta.md"
+  ]
+}

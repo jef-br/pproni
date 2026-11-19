@@ -28,9 +28,8 @@ these against each part's diff; a violation is a blocker, not a note.
    beyond what the plan states, without the user agreeing first. (CLAUDE.md
    working rules.)
 
-6. **Judgment code is surfaced, not decided.** Thresholds, warp/blend, seam-carve
-   and the like are the user's call via `/pair`; the scout tags them, the
-   reviewer confirms none were set silently. (See [tag-protocol.md](tag-protocol.md).)
+6. **Judgment values are the user's.** Thresholds, warp/blend, seam-carve and the
+   like are set only with the user's agreement, never silently.
 
 7. **Diagram stays in sync.** A new/renamed/removed module, struct, enum, or
    public fn is patched into `JBA2B.drawio.svg` in the same commit.

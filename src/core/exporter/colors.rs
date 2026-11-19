@@ -1,9 +1,7 @@
-//! BGC / FGC: the background and foreground colours the debug tags report.
-//!
-//! Measured once, here, from the true-colour working copy partitioned by the segmentation mask
-//! (background = inverse mask, foreground = mask). The preprocessor's colour optimiser never
-//! touches that copy, so the colours describe the original image, scaled to working resolution.
-//! Nothing upstream samples colour, and nothing downstream re-measures it.
+//! BGC / FGC: the background and foreground colours the debug tags report, measured once, here,
+//! from the true-colour working copy split by the mask (background = inverse mask, foreground =
+//! mask). The colour optimiser never touches that copy, so the colours describe the original image
+//! at working resolution. See docs/architecture/02-debug-tags.md.
 
 use super::super::shot_classifier::Mask;
 use image::{Rgb, RgbImage};
@@ -23,13 +21,9 @@ pub struct ShotColors {
     pub fgc: Option<String>,
 }
 
-/// BGC and FGC, derived from the working image partitioned by the mask
-/// (bg = inverse mask, fg = mask).
-///
-/// Working resolution, not the original: `image` and `mask` have to share one
-/// coordinate space for the loop below to index both off the same `x`/`y`, and
-/// the `min` against the mask's dimensions would quietly clip a full-res image
-/// to its top-left corner rather than fail.
+/// BGC and FGC of `image`, split by `mask`. Pass the working-resolution image, not the original:
+/// both are indexed off the same `x`/`y`, and the `min` against the mask's size would quietly clip
+/// a full-res image to its top-left corner rather than fail.
 pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
     let (mut fg_hist, mut bg_hist) = (Hist::new(), Hist::new());
     let w = image.width().min(mask.width);
@@ -53,14 +47,12 @@ pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
         .filter(|(frac, _)| *frac >= BGC_PRESENCE)
         .map(|(_, c)| hex(c));
 
-    // FGC: the largest colour blob inside the mask -> its weighted-median colour.
-    // "Blob" = fullest histogram cluster (the winning 5-bit bin plus its ±1 neighbours)
-    // "Blob" =/= a spatially-connected region.
+    // FGC: weighted-median colour of the largest colour blob in the mask. A blob is the fullest
+    // 5-bit histogram bin plus its ±1 neighbours, not a spatially-connected region.
     let fgc = (fg_hist.total() as f64 >= frame * MIN_REGION_FRAC)
         .then(|| dominant_bin(&fg_hist))
         .flatten()
         .map(|top| {
-            let blob = cluster_bins(top);
             // Per-channel value histograms over the blob's pixels, for a
             // frequency-weighted median that shrugs off folds/shadows.
             let mut chan = [[0u64; 256]; 3];
@@ -70,7 +62,7 @@ pub fn sample(image: &RgbImage, mask: &Mask) -> ShotColors {
                         continue;
                     }
                     let p = image.get_pixel(x, y).0;
-                    if blob.contains(&bin(p[0] >> 3, p[1] >> 3, p[2] >> 3)) {
+                    if in_cluster(top, p) {
                         for c in 0..3 {
                             chan[c][p[c] as usize] += 1;
                         }
@@ -150,6 +142,15 @@ fn cluster_bins(top: usize) -> HashSet<usize> {
     set
 }
 
+/// Is `p` in the blob around bin `top`? Same answer as `cluster_bins(top)` holding `p`'s bin,
+/// without the set: each channel within one step of `top`'s (the clamp at 0 and 31 there only
+/// drops bins that do not exist).
+fn in_cluster(top: usize, p: [u8; 3]) -> bool {
+    let (tr, tg, tb) = ((top >> 10) & 31, (top >> 5) & 31, top & 31);
+    let near = |t: usize, v: u8| t.abs_diff((v >> 3) as usize) <= 1;
+    near(tr, p[0]) && near(tg, p[1]) && near(tb, p[2])
+}
+
 /// Fraction of the region occupied by the dominant colour blob, and that
 /// blob's mean RGB. `None` if the region is empty.
 fn dominant_cluster(h: &Hist) -> Option<(f64, [u8; 3])> {
@@ -194,6 +195,29 @@ mod tests {
 
         assert_eq!(colors.bgc.as_deref(), Some("ffffff"));
         assert_eq!(colors.fgc, None);
+    }
+
+    /// The distance test is the set lookup it replaced, for bins on the edges of the cube as well as the
+    /// middle.
+    #[test]
+    fn in_cluster_matches_the_cluster_set() {
+        let edges = [0usize, 1, 2, 15, 30, 31];
+        for &tr in &edges {
+            for &tg in &edges {
+                for &tb in &edges {
+                    let top = bin(tr as u8, tg as u8, tb as u8);
+                    let set = cluster_bins(top);
+                    for r in 0..32u8 {
+                        for g in 0..32u8 {
+                            for b in 0..32u8 {
+                                let p = [r << 3 | 5, g << 3 | 2, b << 3 | 7];
+                                assert_eq!(in_cluster(top, p), set.contains(&bin(r, g, b)), "top {tr},{tg},{tb} colour {r},{g},{b}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -2,10 +2,8 @@ use pproni::core::shot_classifier::segmentation::{Instance, Mask};
 use pproni::core::shot_classifier::{classify_instance, geometry::Rect, refine::RefineParams, refine::RefinementInput, Edge};
 use image::{Rgb, RgbImage};
 
-/// Builds a working-resolution image (mid-gray background) and its
-/// matching mask for a `subject` rectangle painted white, at `scale`x
-/// the "original" resolution (original == working here, scale = 1, to
-/// keep the synthetic case simple and deterministic).
+/// A mid-grey image with the `subject` rectangle painted white, and its matching mask. Used as both
+/// working and original image (scale 1), to keep the case simple and deterministic.
 fn build_case(width: u32, height: u32, subject: Rect) -> (RgbImage, Mask) {
     let mut image = RgbImage::from_pixel(width, height, Rgb([120, 120, 120]));
     let mut mask = Mask { width, height, data: vec![0u8; (width * height) as usize] };
@@ -61,13 +59,10 @@ fn subject_touching_two_adjacent_edges() {
     assert!(!result.touches_edges.contains(&Edge::Right));
 }
 
-/// Builds a case where the mask and the *image* disagree at the border: a subject column whose
-/// pixels run all the way to the bottom edge, but whose mask stops `short_px` above it.
-///
-/// Pass 1 flags the bottom (mask is within the gate margin). Pass 2 then has to decide the last
-/// `short_px` rows from colour alone — they sit inside the unknown ring, so the verdict is produced
-/// by the matting step and nothing else. `subject_to_border` says whether the image's subject
-/// colour actually continues into those rows.
+/// Mask and *image* disagree at the border: the mask stops 10 px (`mask_bottom`) above the bottom
+/// edge. Pass 1 flags the bottom (the mask is within the gate margin); those last rows sit in the
+/// unknown ring, so only matting decides them. `subject_to_border`: does the subject colour
+/// continue into them?
 fn border_disagreement_case(subject_to_border: bool) -> (RgbImage, Mask) {
     let (w, h) = (200u32, 200u32);
     let (x0, x1) = (80u32, 120u32);
@@ -122,12 +117,10 @@ fn refinement_does_not_extend_the_mask_when_the_colour_stops() {
     );
 }
 
-/// Builds a subject meeting the bottom border, with `flare` controlling *how* it meets it.
-///
-/// `flare == 0` gives a straight column — the silhouette a frame truncates, whose coverage is
-/// identical at every depth. A positive `flare` widens the shape by that many pixels per row as it
-/// recedes from the border: the trapezoid a hem makes curving down to kiss the edge. Both reach
-/// row 0 of the bottom band, so only the graze test can tell them apart.
+/// A subject meeting the bottom border. `flare == 0`: a straight column, the silhouette a frame
+/// truncates. `flare > 0`: widens by `flare` px per row away from the border, a hem grazing the
+/// edge. Both reach the border row, so only the graze test tells them apart. See
+/// docs/architecture/modules/core-shot-classifier-refine.md.
 fn bottom_contact_case(base_w: u32, flare: u32) -> (RgbImage, Mask) {
     let (w, h) = (200u32, 200u32);
     let mut image = RgbImage::from_pixel(w, h, Rgb([120, 120, 120]));

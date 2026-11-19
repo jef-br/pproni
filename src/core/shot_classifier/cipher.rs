@@ -1,11 +1,6 @@
-//! ChaCha20 keystream (RFC 8439) used only to obfuscate the embedded model at rest.
-//!
-//! This is deliberately *not* a security boundary. The key ships inside the binary — anyone who
-//! reverses the exe recovers it — so the goal is not secrecy but friction: the model no longer
-//! carves straight out of the file with `binwalk`/`strings`, and the decrypted bytes exist only in
-//! heap memory for as long as ONNX Runtime needs to copy them into its session. XOR-symmetric, so
-//! the same routine encrypts (in `build.rs`) and decrypts (at load). No MAC — integrity is not a
-//! goal here, and a corrupted model simply fails the session build in `core::preflight`.
+//! ChaCha20 keystream (RFC 8439) that obfuscates the embedded model at rest. *Not* a security
+//! boundary: the key ships in the binary. No MAC: a corrupted model fails the session build in
+//! `core::preflight`. See docs/architecture/modules/core-shot-classifier.md.
 
 const CONSTANTS: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
 
@@ -66,8 +61,7 @@ pub fn xor_keystream(data: &mut [u8], key: &[u8; 32], nonce: &[u8; 12]) {
     }
 }
 
-/// Decrypt `enc` into a fresh buffer. Encryption is the identical operation; `build.rs` calls
-/// `xor_keystream` directly on the plaintext.
+/// Decrypt `enc` into a fresh buffer. `build.rs` encrypts by calling `xor_keystream` directly.
 pub fn decrypt(enc: &[u8], key: &[u8; 32], nonce: &[u8; 12]) -> Vec<u8> {
     let mut out = enc.to_vec();
     xor_keystream(&mut out, key, nonce);

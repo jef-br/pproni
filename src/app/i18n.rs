@@ -1,9 +1,8 @@
-//! Localized user-facing strings. English is the default; ES/FR/NL/IT/DE are supported.
+//! Localized user-facing strings: EN (default), ES, FR, NL, IT, DE.
 //!
-//! Every line here is printed inside the layout `app::theme` draws, so keep each one under
-//! `theme::WIDTH` characters — a longer line wraps and pushes the rule below it out of place.
-//! `interrupt_hint` and `close_line` are tighter still: they share their line with the version
-//! slug on the right, so they have about `WIDTH - 18` to work with.
+//! Keep every line under `theme::WIDTH` characters, or it wraps and pushes the rule below it out
+//! of place. `interrupt_hint` and `close_line` share their line with the version slug, so they get
+//! about `WIDTH - 18`.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang {
@@ -59,6 +58,19 @@ pub fn drop_prompt(lang: Lang) -> [&'static str; 2] {
     }
 }
 
+/// The pre-batch question, headcuts on or off for every image, shown as a callout's text. The keys
+/// are `Y`/`N` in every language, so `(Y/N)` stays as written.
+pub fn headcuts_question(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Enable headcutting for ALL images? (Y/N)",
+        Lang::Es => "¿Recortar cabezas para TODAS las imágenes? (Y/N)",
+        Lang::Fr => "Découper les têtes de TOUTES les images ? (Y/N)",
+        Lang::Nl => "Hoofden croppen op ALLE afbeeldingen? (Y/N)",
+        Lang::It => "Attivare il TaglioTeste per TUTTE le immagini? (Y/N)",
+        Lang::De => "KopfKnipf für ALLE Bilder aktivieren? (Y/N)",
+    }
+}
+
 /// Callout of the start and finish screens.
 pub fn close_line(lang: Lang) -> &'static str {
     match lang {
@@ -83,8 +95,7 @@ pub fn interrupt_hint(lang: Lang) -> &'static str {
     }
 }
 
-/// Label in front of the backup folder on the processing screen. Padded to match [`output_label`]
-/// so the two paths line up.
+/// Label before the backup folder path; padded to [`output_label`]'s width so the paths line up.
 pub fn backup_label(lang: Lang) -> &'static str {
     match lang {
         Lang::En => "  Backup: ",
@@ -96,8 +107,7 @@ pub fn backup_label(lang: Lang) -> &'static str {
     }
 }
 
-/// Label in front of the output folder on the processing screen. Padded to match
-/// [`backup_label`].
+/// Label before the output folder path; padded to match [`backup_label`].
 pub fn output_label(lang: Lang) -> &'static str {
     match lang {
         Lang::En => "  Output: ",
@@ -179,7 +189,7 @@ mod tests {
     fn callouts_leave_room_for_the_slug() {
         let budget = theme::WIDTH - 3 - theme::slug().chars().count() - 1;
         for lang in LANGS {
-            for text in [close_line(lang), interrupt_hint(lang)] {
+            for text in [close_line(lang), interrupt_hint(lang), headcuts_question(lang)] {
                 assert!(text.chars().count() <= budget, "{text:?} exceeds {budget}");
             }
         }

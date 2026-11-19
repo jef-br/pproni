@@ -1,52 +1,54 @@
 //! Compile-time tuning constants.
-//!
-//! Detection and geometry constants retired with the classical detector; the routes that replace
-//! them will add their own here as they grow past stubs.
 
 /// JPEG quality for the saved output.
 pub const JPEG_QUALITY: u8 = 95;
 
+/// Gates the headcut question: false runs Pproni without headcuts. Set true while developing.
+pub const PERMIT_HEADCUTS:bool = false;
+
 // ---- Shot classification ----------------------------------------------------------------------
-//
-// The classifier runs on a downscaled *working* copy, and its pass-2 refinement then works against
-// full-resolution pixels. The three params below are expressed in working-resolution pixels, so
-// they are coupled to WORKING_SIZE — change one and the others shift meaning.
+// `GATE_MARGIN_PX` and `REFINE_NARROW_BAND_PX` are in working-resolution pixels, so they are coupled
+// to `WORKING_SIZE` — change one and the others shift meaning.
+// See docs/architecture/01-why-two-resolutions.md.
 
 /// Longest side of the working-resolution copy the segmentation model runs on.
 pub const WORKING_SIZE: u32 = 1024;
 
-/// Pass 1 and 2 band with gate: an edge is worth refining when foreground appears within this many pixels of it and is the distance for how far the refinement looks.
+/// Pass 1 and 2 band width: an edge is worth refining when foreground appears within this many
+/// pixels of it, and it is how far the refinement looks.
 pub const GATE_MARGIN_PX: u32 = 20;
 
 /// Pass-2 graze test, narrow band.
 pub const REFINE_NARROW_BAND_PX: u32 = 5;
 
-/// Pass-2 graze test threshold.
-/// The graze test compares 2 bands:
-/// A/B = <band sized to 'GATE_MARGIN_PX'> / <band sized to 'REFINE_NARROW_BAND_PX'>
-/// A/B > GRAZE_RATIO_MAX → R1 → bands have the same productwidth so the direction is deemed to intersect the image edge, touching.
-/// A/B <= GRAZE_RATIO_MAX → R2 → indicates a changing direction, is interpreted as the product grazing the image edge, not touching.
+/// Pass-2 graze test threshold on A/B, A the band sized to `GATE_MARGIN_PX`, B the one sized to
+/// `REFINE_NARROW_BAND_PX`. Above it (R1) both bands hold the same product width: the product
+/// touches the image edge. At or below it (R2) the direction changes: it only grazes the edge.
+/// See docs/architecture/modules/core-shot-classifier-refine.md.
 pub const GRAZE_RATIO_MAX: f32 = 0.80;
 
-/// Below this fraction of the frame, a mask is not a subject. See `shotcode::mask_too_small`. JB-calibrated.
+/// Below this fraction of the frame, a mask is not a subject — unless its longest side reaches
+/// `MASK_MIN_LONGEST_SIDE_PX`. See `shotcode::mask_too_small`. JB-calibrated.
 pub const MASK_MIN_COVERAGE: f64 = 0.05;
+
+/// A mask under `MASK_MIN_COVERAGE` is still a subject when its longest side, in original pixels,
+/// is at least this long: `MIN_SIZE` less R1's margin (800 − 8.4% = 732.8 → 733), so it follows
+/// `MIN_SIZE` and `R1_MARGIN`. The user's rule.
+/// See docs/work-state/2026-10-29-routing-in-shot-classifier.md.
+pub const MASK_MIN_LONGEST_SIDE_PX: u32 = (MIN_SIZE as f64 * (1.0 - R1_MARGIN as f64) + 0.5) as u32;
 
 // ---- Optimiser trim ---------------------------------------------------------------------------
 //
-// After the colour balance, the optimiser crops the backdrop away so the 512px model sees the product
-// larger (`preprocessor::optimizer`). All four numbers are in working-resolution pixels or shares.
+// The optimiser's backdrop trim (`preprocessor::optimizer`), so the 512px model sees the product
+// larger. Working-resolution pixels or shares. See docs/architecture/01-why-two-resolutions.md.
 
-/// Backdrop samples taken along each edge of the frame, evenly spaced from the edge's start
-/// (4 gives 0%, 25%, 50% and 75%; 100% is the next edge's 0%). The lowest and highest value of every
-/// colour channel over all the kept samples is the colour range that counts as backdrop.
+/// Backdrop samples per edge of the frame, evenly spaced from the edge's start (4: 0, 25, 50 and
+/// 75%; 100% is the next edge's 0%).
 pub const TRIM_SAMPLES_PER_EDGE: u32 = 4;
 
-/// Outlier drop on the border samples. A sample is kept when its L1 colour distance to the
-/// per-channel median of the 16 samples (`|ΔR|+|ΔG|+|ΔB|`, so 0 to 765) stays at or below
-/// `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD`, where MAD is the median of those distances. The
-/// floor is a fixed safety band around the median so a near-uniform edge is not shredded; the
-/// MAD-scaled term grows the band on noisy edges. `TRIM_MIN_KEEP` samples are always kept — the
-/// ones closest to the median — so a mostly-product edge cannot collapse the backdrop range.
+/// Outlier drop on the border samples: kept when the L1 colour distance (0 to 765) to the
+/// per-channel median is at most `TRIM_OUTLIER_FLOOR + TRIM_OUTLIER_K * MAD`; the `TRIM_MIN_KEEP`
+/// closest always stay. See docs/architecture/modules/core-preprocessor-optimizer.md.
 pub const TRIM_OUTLIER_FLOOR: u32 = 120;
 pub const TRIM_OUTLIER_K: f64 = 1.5;
 pub const TRIM_MIN_KEEP: usize = 4;
@@ -56,17 +58,15 @@ pub const TRIM_MIN_KEEP: usize = 4;
 /// backdrop (a morphological closing of the backdrop with a square window of this size).
 pub const TRIM_CLOSE_K: u32 = 2;
 
-/// The box around the product is first squared to its largest side, then grown on every side by the
-/// larger of `TRIM_MARGIN_MIN_PX` and `TRIM_MARGIN_SHARE` of that side. The resulting square is slid to
-/// stay inside the frame; it is never cut unless no square fits, and then the margin is the minimum
-/// (see `optimizer::square_crop`).
+/// Margin grown on every side of the squared product box: the larger of `TRIM_MARGIN_MIN_PX` and
+/// `TRIM_MARGIN_SHARE` of its side (`optimizer::square_crop`).
 pub const TRIM_MARGIN_MIN_PX: u32 = 10;
 pub const TRIM_MARGIN_SHARE: f64 = 0.10;
 
-/// Trim 2, the control (`optimizer::recheck_box`): the trim is run a second time on trim 1's tight
-/// box. If any side of the second box differs from the first by MORE than this many pixels, the box
-/// was not stable — a mono-colour frame (a passe-partout) sat round the real picture — and the
-/// second box replaces the first. Starting value, to be calibrated.
+/// Trim 2, the control (`optimizer::recheck_box`): it counts as moved when a side of the re-run box
+/// differs from trim 1's by MORE than this many pixels — a mono-colour frame (a passe-partout) may
+/// sit round the picture. Starting value, to be calibrated.
+/// See docs/architecture/01-why-two-resolutions.md.
 pub const TRIM_RECHECK_TOLERANCE_PX: u32 = 2;
 
 /// How far, in working pixels, the segmask's box may sit from a trim box and still count as "equal"
@@ -77,9 +77,9 @@ pub const TRIM_SEGMASK_TOLERANCE_PX: u32 = 8;
 /// no more than this share of its length, summed over both its sides. Starting value.
 pub const FRAMING_OTHER_AXIS_SLACK: f32 = 0.02;
 
-/// `core::framing`: bars are padding only when the two cut sides are of similar width: the thinner
-/// is at least this share of the thicker. Padding is added evenly (measured: 0.5-1.0); backdrop round a
-/// product that sits off-centre is not (image 19: 0.05). Starting value.
+/// `core::framing`: bars are padding only when the thinner cut side is at least this share of the
+/// thicker (padding is added evenly; backdrop round an off-centre product is not). Starting value.
+/// See docs/work-state/2026-10-21-trims-and-framing.md.
 pub const FRAMING_BARS_SYMMETRY: f32 = 0.3;
 
 /// `core::framing`: trim 1's box counts as square when its sides differ by no more than this share
@@ -105,12 +105,9 @@ pub const MAX_SIZE: u32 = 2000;
 
 // ---- R1 · Center & Stretch --------------------------------------------------------------------
 
-/// Margin R1 leaves around the subject, as a fraction of the square's side.
-///
-/// The margin for an axis with both sides free: `extent * (1 + R1_MARGIN)`, shared between the two
-/// sides, 4.2% on each. An axis with a single free side (the other is pinned to the frame) gets 4.2%,
-/// not the whole 8.4%; an axis pinned on both sides gets none. The square is the larger of the two
-/// axes' needs (`plan::SquarePlan::new`).
+/// Margin R1 leaves around the subject, as a fraction of the square's side: an axis with both sides
+/// free needs `extent * (1 + R1_MARGIN)`, 4.2% a side. The square is the larger of the two axes'
+/// needs (`shot_classifier::plan::SquarePlan::new`). See docs/specs/05-routing.md §5.1.
 pub const R1_MARGIN: f32 = 2.0*0.042;
 
 /// Standard deviation of the per-channel noise added to a flat BGC/white fill, so a line with no
@@ -119,24 +116,97 @@ pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
 
 // ---- R1 · mask-aware fill (plan Part A) -------------------------------------------------------
 //
-// These drive the segmask-aware stretch (`center_and_stretch::compose`). They are working values: the
-// user allowed them to be tuned (2026-10-21) when an image shows a problem, and none does now.
+// Drive the segmask-aware stretch (`center_and_stretch::compose`). Working values: the user allows
+// tuning when an image shows a problem. See docs/work-state/2026-10-21-trims-and-framing.md.
 
-/// Plan name `FILL_SOURCE_CLEARANCE_PX`; the one distance between the product and the background
-/// the fill may use. The silhouette is grown outward by this many *working*-resolution pixels, in
-/// every direction. Inside the grown shape is the product band, copied untouched; the stretch
-/// source is only what lies outside it, so the stretch never samples a cuff, edge or tiny shadow
-/// hugging the product (the 10/11 grey-streak case). Scaled to full resolution at use.
-/// It replaces the old `R1_SAFETY_*` and this constant, which did the same job twice.
+/// Plan name `FILL_SOURCE_CLEARANCE_PX`: the product-to-background distance the fill uses, in
+/// *working*-resolution pixels (scaled at use). The silhouette grown by it is the product band,
+/// never a stretch source. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
 
-/// How fast the product band's edge may move from one line to the next, in pixels per line. The band
-/// of a line is the silhouette's span on that line, so where a second object starts a few lines after
-/// the first (two shoes side by side) the edge would jump by hundreds of pixels between two lines and
-/// the stretch beside it would change completely in one line: a visible horizontal step. The band is
-/// widened only (never narrowed, so it always covers the product) until no edge moves faster than
-/// this. 1 is a 45° slope.
+/// How fast the product band's edge may move from one line to the next, in pixels per line (1 is a
+/// 45° slope). The band is only widened, so it still covers the product, until no edge moves faster;
+/// this stops a visible step where a second object starts a few lines after the first.
+/// See docs/work-state/2026-10-21-fixes-after-review.md.
 pub const R1_BAND_SLOPE_PX_PER_LINE: u32 = 1;
+
+// ---- R1 · flat background: the stretch and the edge gradients -----------------------------------
+//
+// `center_and_stretch::flatness` decides whether the background is flat. On a flat one the stretch
+// starts from the subject's box and `center_and_stretch::gradients` fades the invented edges into one
+// flat colour; on a textured one neither happens. Reuses `GATE_MARGIN_PX`, `REFINE_NARROW_BAND_PX`,
+// `R1_MARGIN` and `R1_FILL_SOURCE_CLEARANCE_WORKING_PX`.
+// See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// Side of one block of the flatness measure, in working-resolution pixels (the mask's own size).
+pub const R1_FLAT_BLOCK_PX: u32 = 24;
+
+/// A block is rough when the standard deviation of its pixels' luma, after the slow changes are taken
+/// out, is above this (0..255). Slow changes are what a Gaussian of `R1_FLAT_SLOW_SIGMA` keeps.
+pub const R1_FLAT_BLOCK_STD: f32 = 2.0;
+
+/// Sigma, in working-resolution pixels, of the Gaussian whose result counts as a slow change.
+pub const R1_FLAT_SLOW_SIGMA: f32 = 8.0;
+
+/// A block counts only when no mask pixel lies within this many working-resolution pixels of it: the
+/// clearance round the product plus 3 px, so the product's own edge never reads as texture.
+pub const R1_FLAT_BLOCK_GAP_PX: u32 = R1_FILL_SOURCE_CLEARANCE_WORKING_PX + 3;
+
+/// The background is flat when at most this share of the counted blocks is rough. Measured on the core
+/// set: the images that should be flat reach 0.05 at most, the textured ones start at 0.20.
+pub const R1_FLAT_ROUGH_SHARE_MAX: f32 = 0.10;
+
+/// The bottom gradient reaches full colour this share of the subject box's height below the box
+/// (at least `GATE_MARGIN_PX`, at most the border). The user's value, from the 104388851 targets.
+pub const R1_FLAT_EDGE_FADE_SHARE: f32 = 0.25;
+
+// ---- R1 · grazed edges: the second test and the patch fill -------------------------------------
+//
+// `center_and_stretch::grazes` leaves the lines the product grazes unstretched. A flat edge fills them
+// with a plain colour or ramp; any other edge hands them to `center_and_stretch::patch`.
+// See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// Second test, the edge counts as flat (no variance) when its outermost pixel line, safe lines only,
+/// spans at most this many levels (0..255) between its 5th and 95th percentile. 3 is the proposal of
+/// 2026-11-18, not yet confirmed by the user; the cores' flat edges measure 0 to 13.
+pub const R1_GRAZE_FLAT_TOLERANCE: u32 = 3;
+
+/// Side of the patch the fill copies, in canvas pixels (odd).
+pub const R1_PATCH_PX: usize = 11;
+
+/// How far from a gap the fill looks for source patches, in canvas pixels.
+pub const R1_PATCH_SEARCH_HALO_PX: usize = 500;
+
+/// How many random source patches are tried per target patch, besides the offsets of the last patches.
+pub const R1_PATCH_CANDIDATES: usize = 4000;
+
+/// A gap's pixel is dropped from the patch context this many canvas pixels round the product (its own
+/// anti-aliased edge).
+pub const R1_PATCH_PRODUCT_EDGE_PX: u32 = 2;
+
+// ---- R1 · the solid-background look (creased flat backgrounds) ---------------------------------
+//
+// `center_and_stretch::solid`. Used when the flat gate says flat, no background colour was found, a
+// flagged edge has grazed lines, and the background is creased. The sizes are shares of the canvas, in
+// the mask's pixels. See docs/work-state/2026-11-13-flat-edge-gradients.md.
+
+/// The background is creased when its steepest step (the 99th percentile of the difference between
+/// adjacent luma pixels, after a 1 px blur, on the mask's grid) is above this. Core 34's smooth floor
+/// measures 0.36, 51's creases 0.64, the loafers' 0.62; a cut at 0.5 is the user's choice of 2026-11-19.
+pub const R1_SOLID_CREASE_STEP: f32 = 0.5;
+
+/// The product's margin and feather, in mask pixels.
+pub const R1_SOLID_MARGIN_PX: usize = 1;
+pub const R1_SOLID_FEATHER_SIGMA: f32 = 0.5;
+
+/// The shadow band: the mask moves down by this share of the grid's side (also the length of the
+/// blur down), then a Gaussian of `R1_SOLID_BLUR_SIGMA_SHARE`. 40 px and 20 px on a 2000 px output.
+pub const R1_SOLID_SHADOW_SHARE: f32 = 0.02;
+pub const R1_SOLID_BLUR_SIGMA_SHARE: f32 = 0.01;
+
+/// The band is off down to this share of the mask's height and fully on from the second share.
+pub const R1_SOLID_RAMP_START: f32 = 0.33;
+pub const R1_SOLID_RAMP_END: f32 = 0.66;
 
 // ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
 //
@@ -156,3 +226,8 @@ pub const T_TEXTURE_HIGHPASS: f32 = 12.5;
 /// Above it there is no low-energy corridor to grow through, so the carve would visibly warp and
 /// `extend::seam_carve_to_square` rejects — the chain falls through to white-pad.
 pub const R1_SEAM_CARVE_MAX_SEAM_ENERGY: f32 = 24.0;
+
+/// Headcut on a bars image: the room below the cut may fall short of the mask's width by at most this
+/// share, or no headcut is done and the bars rule centres the whole picture. The user's gut value;
+/// wants calibrating on more examples. See docs/work-state/2026-10-30-headcut-on-bars-image.md.
+pub const HEADCUT_BARS_MAX_SHORTFALL: f32 = 0.25;

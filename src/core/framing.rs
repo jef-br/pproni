@@ -1,23 +1,15 @@
 //! Framing: what the padding or frame round the picture means, read from the two trims and the mask.
 //!
-//! The model runs once, on trim 1's crop, and its mask is the one reliable fact about the picture.
 //! Trim 1 ([`crate::core::preprocessor::optimizer`]) boxes everything that is not backdrop; what it
-//! trims off is either real backdrop round a floating product, or something that is not part of the
-//! picture at all: white bars on one axis, or a frame all the way round. This module tells them apart.
+//! trims off is real backdrop round a floating product, or not picture at all. The mask of the one
+//! model run, on trim 1's crop, tells them apart.
+//! * **Bars** on one axis: [`Decision::Centre`], R1 centres the content box, aligned on nothing.
+//! * **Frame** all round: [`Decision::Peel`] crops to trim 1's box and the edge check runs again (the
+//!   product the frame hid now meets the new border).
+//! * Everything else: [`Decision::Keep`].
 //!
-//! * **Bars** — trim 1 cut both sides of ONE axis and next to nothing of the other, and the subject
-//!   touches an edge (EIX is not `0000`), and the two cut sides are of similar width (padding is added
-//!   evenly; plain backdrop round an off-centre product is not). The bars are padding, not backdrop to
-//!   stretch, and the content behind them (a lifestyle scene, as on images 41 and 46) cannot be
-//!   stretched convincingly. The result is [`Decision::Centre`]: R1 cuts the square from the content
-//!   box with equal padding either side of it, aligned on nothing.
-//! * **Frame** — EIX is `0000`, trim 1 cut all four sides, trim 2 found nothing more to cut, and trim
-//!   1's box is square. The ring outside it is a frame: [`Decision::Peel`] crops the picture to
-//!   trim 1's box, and the edge check runs again on the cropped picture (the product the frame
-//!   hid now meets the new border). Never when trim 1's box is just the product (it equals the
-//!   mask), which is what a plain backdrop with a floating product gives.
-//!
-//! Everything else is [`Decision::Keep`]. The decisions are pure, so they are tested without a model.
+//! The rules: see docs/architecture/02-modules-core.md. The decisions are pure, so they are tested
+//! without a model.
 
 use crate::core::config;
 use crate::core::shot_classifier::geometry::Rect;
@@ -93,12 +85,9 @@ pub fn decide(frame: (u32, u32), first: Rect, second: Option<Rect>, touched: usi
     (Decision::Peel(first), format!("{insets}: a square box round a smaller subject (mask {m:?}) inside a ring on all four sides, so the frame is peeled"))
 }
 
-/// The colour of the frame: the dominant colour of the picture's outer four lines all the way round.
-///
-/// Dominant, not median, and four lines deep rather than one: the very last row or column of a JPEG is
-/// often a one-pixel line of another colour, and on a thin frame that line can be half of the outer ring
-/// (it was, on the frame this was written for). Colours are grouped in 5-bit bins; the answer is the
-/// mean of the fullest bin.
+/// The colour of the frame: the mean of the fullest 5-bit colour bin over the picture's outer four
+/// lines all the way round. Dominant and four deep, so a one-pixel JPEG edge line of another colour
+/// cannot win. See docs/architecture/modules/core-framing.md.
 pub fn border_colour(img: &RgbImage) -> [u8; 3] {
     let (w, h) = img.dimensions();
     let mut count = vec![0u32; 32 * 32 * 32];
@@ -128,12 +117,9 @@ pub fn border_colour(img: &RgbImage) -> [u8; 3] {
 
 /// Peel deeper than trim 1's box wherever the frame goes on inside it.
 ///
-/// Trim 1 stops where something not of the frame's colour begins, so where the product runs into the
-/// frame (a dark product against a dark frame) the box can stop several pixels inside it. Each side
-/// of `first` is moved inward while its outermost line is still frame: at least 99% of the pixels
-/// that are NOT under the mask lie within `T_EDGE_FLAT` of `frame` on every channel. The mask is what
-/// makes this safe — product pixels never count against the frame, and a line with real background
-/// or product outside the mask stops the peel. No side moves more than a quarter of the box.
+/// Each side of `first` moves inward while its outermost line is still frame: at least 99% of the
+/// pixels NOT under the mask lie within `T_EDGE_FLAT` of `frame` on every channel. No side moves more
+/// than a quarter of the box. See docs/architecture/modules/core-framing.md.
 pub fn deepen_peel(img: &RgbImage, mask: &Mask, first: Rect, frame: [u8; 3]) -> Rect {
     let near = |x: u32, y: u32| {
         let p = img.get_pixel(x, y).0;
@@ -207,28 +193,23 @@ mod tests {
     }
 
     #[test]
-    fn white_bars_left_and_right_with_the_subject_on_one_edge_are_centred() {
-        // 41: 1024x1024, bars 132 px each side, full height. Trim 2 moved it a little; that is not
-        // needed to know these are bars. A lifestyle scene cannot be stretched, so it is centred.
-        let first = r(132, 0, 760, 1024);
-        let (d, _) = decide((1024, 1024), first, Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952)));
-        assert_eq!(d, Decision::Centre(first));
-    }
-
-    #[test]
-    fn bars_top_and_bottom_are_centred_even_with_a_sliver_missed_on_one_side() {
-        // 46: 193 px above and 212 below, and 14 px short on the right where the product is pale.
-        let first = r(0, 193, 1010, 619);
-        let (d, _) = decide((1024, 1024), first, None, 1, None);
-        assert_eq!(d, Decision::Centre(first));
-    }
-
-    #[test]
-    fn bars_with_the_subject_on_two_edges_are_centred_with_padding() {
-        // 35: 1024x1024, bars 30 and 27 px either side, subject on the top and the bottom edge.
-        let first = r(30, 0, 967, 1024);
-        let (d, _) = decide((1024, 1024), first, None, 2, None);
-        assert_eq!(d, Decision::Centre(first));
+    fn white_bars_are_centred() {
+        // (image, trim 1's box, trim 2's box, edges the subject touches, mask box)
+        let cases = [
+            // 41: 1024x1024, bars 132 px each side, full height, subject on one edge. Trim 2 moved
+            // it a little; that is not needed to know these are bars.
+            ("41", r(132, 0, 760, 1024), Some(r(132, 72, 760, 952)), 1, Some(r(234, 72, 482, 952))),
+            // 46: 193 px above and 212 below, and 14 px short on the right where the product is
+            // pale: a sliver missed on one side does not stop it being bars.
+            ("46", r(0, 193, 1010, 619), None, 1, None),
+            // 35: 1024x1024, bars 30 and 27 px either side, subject on the top and the bottom
+            // edge: centred with padding.
+            ("35", r(30, 0, 967, 1024), None, 2, None),
+        ];
+        for (image, first, second, touched, mask) in cases {
+            let (d, why) = decide((1024, 1024), first, second, touched, mask);
+            assert_eq!(d, Decision::Centre(first), "image {image}: {why}");
+        }
     }
 
     #[test]
@@ -255,58 +236,41 @@ mod tests {
     }
 
     #[test]
-    fn a_floating_product_whose_box_is_the_product_is_left_alone() {
-        // Plain backdrop, product in the middle, trim 1's box is the mask (within the tolerance).
-        let first = r(300, 300, 400, 400);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(304, 298, 394, 402)));
-        assert_eq!(d, Decision::Keep);
+    fn these_are_left_alone() {
+        // (why it is left alone, trim 1's box, trim 2's box, edges the subject touches, mask box)
+        let cases = [
+            // Plain backdrop, product in the middle, trim 1's box is the mask (within the tolerance).
+            ("a floating product whose box is the product", r(300, 300, 400, 400), None, 0, Some(r(304, 298, 394, 402))),
+            ("a ring when trim two found another layer", r(9, 15, 1008, 1003), Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880))),
+            ("a box that is not square", r(9, 15, 1008, 700), None, 0, Some(r(380, 130, 310, 500))),
+            ("a mask reaching outside the box: the box cut the product", r(9, 15, 1008, 1003), None, 0, Some(r(0, 130, 400, 880))),
+            ("nothing cut: nothing to do", r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900))),
+            // An ordinary studio shot that bleeds off the bottom: backdrop trimmed on three sides.
+            ("a subject on an edge with trim on both axes: left to R1", r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934))),
+        ];
+        for (name, first, second, touched, mask) in cases {
+            let (d, why) = decide((1024, 1024), first, second, touched, mask);
+            assert_eq!(d, Decision::Keep, "{name}: {why}");
+        }
     }
 
-    #[test]
-    fn a_ring_is_not_peeled_when_trim_two_found_another_layer() {
-        let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, Some(r(100, 100, 800, 800)), 0, Some(r(380, 130, 310, 880)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_box_that_is_not_square_is_not_peeled() {
-        let first = r(9, 15, 1008, 700);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(380, 130, 310, 500)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_mask_reaching_outside_the_box_means_the_box_cut_the_product() {
-        let first = r(9, 15, 1008, 1003);
-        let (d, _) = decide((1024, 1024), first, None, 0, Some(r(0, 130, 400, 880)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn nothing_cut_means_nothing_to_do() {
-        let (d, _) = decide((1024, 1024), r(1, 0, 1022, 1024), None, 1, Some(r(10, 10, 900, 900)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn a_subject_on_an_edge_with_trim_on_both_axes_is_left_to_r1() {
-        // An ordinary studio shot that bleeds off the bottom: backdrop trimmed on three sides.
-        let (d, _) = decide((1024, 1024), r(200, 80, 600, 944), None, 1, Some(r(210, 90, 580, 934)));
-        assert_eq!(d, Decision::Keep);
-    }
-
-    #[test]
-    fn the_peel_goes_on_inside_a_frame_the_product_runs_into() {
-        // A 100x100 picture: dark frame 8 px thick, light inside, a red product from y=30 right
-        // through the bottom of the frame. Trim 1 stopped 3 px in on every side, and 3 px from the
-        // bottom, where the product merges with the frame.
+    /// A 100x100 picture: a dark frame 8 px thick round a light inside.
+    fn frame_100() -> RgbImage {
         let mut img = RgbImage::from_pixel(100, 100, image::Rgb([20, 20, 20]));
         for y in 8..92 {
             for x in 8..92 {
                 img.put_pixel(x, y, image::Rgb([200, 200, 200]));
             }
         }
+        img
+    }
+
+    #[test]
+    fn the_peel_goes_on_inside_a_frame_the_product_runs_into() {
+        // The frame of `frame_100`, and a red product from y=30 right through the bottom of the
+        // frame. Trim 1 stopped 3 px in on every side, and 3 px from the bottom, where the product
+        // merges with the frame.
+        let mut img = frame_100();
         let mut mask = Mask { width: 100, height: 100, data: vec![0; 10_000] };
         for y in 30..100 {
             for x in 40..60 {
@@ -327,14 +291,8 @@ mod tests {
     }
 
     #[test]
-    fn the_peel_stops_at_a_line_with_real_background_outside_the_mask() {
-        // The inside has a dark stripe along the bottom that is NOT frame colour: stop there.
-        let mut img = RgbImage::from_pixel(100, 100, image::Rgb([20, 20, 20]));
-        for y in 8..92 {
-            for x in 8..92 {
-                img.put_pixel(x, y, image::Rgb([200, 200, 200]));
-            }
-        }
+    fn the_peel_works_without_a_product_and_only_for_the_frames_own_colour() {
+        let img = frame_100();
         let mask = Mask { width: 100, height: 100, data: vec![0; 10_000] };
         let peeled = deepen_peel(&img, &mask, r(3, 3, 94, 94), [20, 20, 20]);
         assert_eq!(peeled, r(9, 9, 82, 82));

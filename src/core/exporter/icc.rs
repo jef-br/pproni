@@ -12,7 +12,7 @@ pub fn srgb_profile() -> Vec<u8> {
     let b_xyz = xyz_tag(0.14307, 0.06061, 0.71410);
     let trc = srgb_curve_tag();
 
-    // Tag table: (signature, payload). rTRC/gTRC/bTRC share one payload block.
+    // Tag table: (signature, payload).
     let entries: [(&[u8; 4], &Vec<u8>); 8] = [
         (b"desc", &desc),
         (b"wtpt", &wtpt),
@@ -25,7 +25,6 @@ pub fn srgb_profile() -> Vec<u8> {
     ];
     let (cprt_sig, cprt_payload): (&[u8; 4], &Vec<u8>) = (b"cprt", &cprt);
 
-    // Ordered list of (signature, payload) including the shared TRC (added once, referenced thrice).
     let mut all: Vec<(&[u8; 4], &Vec<u8>)> = entries.to_vec();
     all.push((cprt_sig, cprt_payload));
     all.sort_by_key(|(sig, _)| **sig); // ICC requires the tag table in ascending signature order
@@ -34,8 +33,8 @@ pub fn srgb_profile() -> Vec<u8> {
     let header_len = 128usize;
     let table_len = 4 + tag_count * 12;
 
-    // Lay out each distinct payload once in `blob`, recording its offset. rTRC/gTRC/bTRC dedup to
-    // the same block because they share the same `&trc` pointer.
+    // Lay out each distinct payload once in `blob`, recording its offset; rTRC/gTRC/bTRC share one
+    // block (added once, referenced thrice).
     let mut blob = Vec::new();
     let mut trc_offset: Option<usize> = None;
     let mut table = Vec::new();

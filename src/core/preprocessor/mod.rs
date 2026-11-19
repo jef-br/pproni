@@ -3,25 +3,23 @@
 //! **load** — decode, apply EXIF orientation, read the embedded ICC profile.
 //!
 //! **preprocess (homogenize)** — flatten any alpha onto white, colour-manage into sRGB, and produce
-//! the working-resolution copy. Everything downstream sees one shape: opaque sRGB pixels at two
-//! resolutions, no alpha channel and no unknown colour space. A third image, `model_input`, is the
-//! working copy run through the optimiser (colour balance, then a crop around the product) — it
-//! exists only to be shown to the model, and `crop` says where it was cut from `working`.
-//!
-//! Both resolutions are kept because the shot classifier needs both: the segmentation model runs on
-//! `working`, and its pass-2 refinement re-decides the boundary against full-resolution pixels in
-//! `original`. Hand it the same image twice and the scale between them collapses to 1.0, which
-//! reduces the refinement to a no-op.
+//! the working-resolution copy, plus `model_input`, the optimised copy only the model sees.
+//! Downstream sees opaque sRGB pixels only: no alpha channel, no unknown colour space. Why two
+//! resolutions, and the optimiser: see docs/architecture/01-why-two-resolutions.md.
 
+pub mod maria_antonieta;
 pub mod optimizer;
 
 use super::config::WORKING_SIZE;
+use super::options::Options;
 use super::shot_classifier::geometry::Rect;
 use super::trace;
+use fast_image_resize as fir;
 use image::{DynamicImage, ImageReader, RgbImage};
 use std::path::Path;
 use tintbox::format::decode::TYPE_RGB_8;
 use tintbox::profile::{virtuals::build_srgb_profile, ColorSpace, Profile, RenderingIntent};
+use tintbox::sig::Signature;
 use tintbox::transform::Transform;
 
 /// A decoded, correctly-oriented image plus whatever colour profile it declared.
@@ -78,8 +76,8 @@ pub struct Prepared {
 }
 
 /// Load and homogenize in one call — what the pipeline uses.
-pub fn prepare(path: &Path) -> Result<Prepared, String> {
-    preprocess(load(path)?)
+pub fn prepare(path: &Path, options: &Options) -> Result<Prepared, String> {
+    preprocess(load(path)?, options)
 }
 
 /// Decode `path`, apply its EXIF orientation, and keep its ICC profile for the sRGB conversion.
@@ -104,23 +102,24 @@ pub fn load(path: &Path) -> Result<Decoded, String> {
 /// optimised crop the model sees.
 ///
 /// `Err` when the optimiser finds nothing but backdrop: the image is not processed.
-pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
+pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, String> {
     let mut original = flatten_onto_white(&decoded.image);
     trace::image(trace::stage::ORIGINAL, "Preprocess ingress: Decode, EXIF rotation, flatten alpha to white", || original.clone());
 
-    // A source tagged with a non-sRGB RGB profile gets colour-managed into sRGB here, before any
-    // downstream pixel math runs on it. An untagged image, or one already tagged sRGB, is left
-    // untouched.
+    // Into sRGB before any pixel math. See docs/architecture/modules/core-preprocessor.md.
     if let Some(icc) = decoded.icc_profile.as_deref() {
-        original = convert_to_srgb(original, icc);
-        trace::note(|| "ICC profile detected and converted to sRGB".into());
+        if is_srgb_profile(icc) {
+            trace::note(|| "ICC profile is already sRGB: colours left as-is".into());
+        } else {
+            original = convert_to_srgb(original, icc);
+            trace::note(|| "ICC profile detected and converted to sRGB".into());
+        }
     } else {
         trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
 
-    // Plan Part C: flat letterbox/pillarbox bars on a textured scene (mountain/268) are found here,
-    // on the full-resolution image, before the mask exists. `original` itself is left whole; R1
-    // reads `letterbox` and re-frames the trimmed part (`extend::reframe_to_square`).
+    // Plan Part C: bars are found on full resolution, before the mask exists; `original` stays
+    // whole. See docs/architecture/modules/core-preprocessor-optimizer.md.
     let report = optimizer::detect_letterbox(&original);
     let letterbox = report.keep;
     if trace::active() {
@@ -155,13 +154,14 @@ pub fn preprocess(decoded: Decoded) -> Result<Prepared, String> {
 
     let working = downscale_to_working(&original);
 
-    // Colour-balance a copy of the working image and crop it to the product, so the segmentation
-    // model finds the subject more reliably. `working` and `original` stay true-colour: the exporter
+    // Only the model sees the balanced crop. `working` and `original` stay true colour: the exporter
     // composes from `original` and samples BGC/FGC from `working`.
     let both = optimizer::optimize_both(&working)?;
     let (model_input, crop) = (both.model_input, both.crop);
     let trims = Trims { first: both.first, second: both.second };
     trace::note(|| format!("Optimiser {crop:?}\nworking copy: {}x{}", working.width(), working.height()));
+
+    let _ = options; // Preserved for callers; headcutting is driven post-classify in `core::process_file`.
     Ok(Prepared { original, working, model_input, crop, trims, framing: Framing::Free, letterbox })
 }
 
@@ -193,17 +193,39 @@ fn downscale_to_working(original: &RgbImage) -> RgbImage {
     let scale = WORKING_SIZE as f64 / longest as f64;
     let target_w = ((w as f64 * scale).round() as u32).max(1);
     let target_h = ((h as f64 * scale).round() as u32).max(1);
-    image::imageops::resize(
-        original,
-        target_w,
-        target_h,
-        image::imageops::FilterType::Triangle,
-    )
+    // Triangle filter (called "Bilinear" by this crate). The inputs cannot be refused: the buffer is an
+    // `RgbImage`'s own, the pixel type matches it, and both sizes are at least 1.
+    let source = fir::images::ImageRef::new(w, h, original.as_raw(), fir::PixelType::U8x3)
+        .expect("an RgbImage's buffer matches its size");
+    let mut target = fir::images::Image::new(target_w, target_h, fir::PixelType::U8x3);
+    let options = fir::ResizeOptions::new().resize_alg(fir::ResizeAlg::Convolution(fir::FilterType::Bilinear));
+    fir::Resizer::new()
+        .resize(&source, &mut target, &options)
+        .expect("same pixel type, sizes of at least 1");
+    RgbImage::from_raw(target_w, target_h, target.into_vec()).expect("the target buffer holds target_w x target_h pixels")
 }
 
-// Colour-manage `rgb` from its embedded ICC profile into sRGB via tintbox (a pure-Rust,
-// bit-identical-to-lcms2 CMM). Anything that doesn't parse as an RGB profile, or that tintbox
-// can't build a transform for, leaves `rgb` untouched — same fallback as no profile at all.
+// Whether `icc` is an RGB profile whose `desc` tag names it sRGB (ASCII or UTF-16 big-endian); such
+// an image skips the conversion. See docs/architecture/modules/core-preprocessor.md.
+fn is_srgb_profile(icc: &[u8]) -> bool {
+    let Ok(profile) = Profile::open(icc) else {
+        return false;
+    };
+    if profile.header().color_space != ColorSpace::Rgb {
+        return false;
+    }
+    let Ok(desc) = profile.read_tag_raw(Signature::from_bytes(*b"desc")) else {
+        return false;
+    };
+    let ascii = desc.windows(4).any(|w| w.eq_ignore_ascii_case(b"srgb"));
+    let utf16 = desc
+        .windows(8)
+        .any(|w| w[0] == 0 && w[2] == 0 && w[4] == 0 && w[6] == 0 && [w[1], w[3], w[5], w[7]].eq_ignore_ascii_case(b"srgb"));
+    ascii || utf16
+}
+
+// Colour-manage `rgb` from its embedded ICC profile into sRGB via tintbox. Any failure leaves `rgb`
+// untouched, as with no profile. See docs/architecture/modules/core-preprocessor.md.
 fn convert_to_srgb(rgb: RgbImage, icc: &[u8]) -> RgbImage {
     let (w, h) = (rgb.width(), rgb.height());
     let Ok(source) = Profile::open(icc) else {
@@ -249,7 +271,7 @@ mod tests {
             }
         }
 
-        let prep = preprocess(Decoded { image: DynamicImage::ImageRgb8(img.clone()), icc_profile: None }).unwrap();
+        let prep = preprocess(Decoded { image: DynamicImage::ImageRgb8(img.clone()), icc_profile: None }, &Options::default()).unwrap();
 
         assert_eq!(prep.working, img, "working must be the untouched (here: not even resized) image");
         // A 30x30 product: the margin is the 10 px floor on every side.
@@ -262,10 +284,25 @@ mod tests {
         );
     }
 
+    /// A profile that names itself sRGB is skipped; one with another name is not; bytes that are not a
+    /// profile are not.
+    #[test]
+    fn a_profile_is_srgb_by_its_name() {
+        let srgb = crate::core::exporter::icc::srgb_profile();
+        assert!(is_srgb_profile(&srgb));
+
+        let at = srgb.windows(4).position(|w| w == b"sRGB").expect("the profile names itself");
+        let mut renamed = srgb.clone();
+        renamed[at..at + 4].copy_from_slice(b"Adob");
+        assert!(!is_srgb_profile(&renamed));
+
+        assert!(!is_srgb_profile(b"not a profile"));
+    }
+
     /// A frame with nothing but backdrop is refused, so the batch leaves the file where it is.
     #[test]
     fn a_blank_image_is_an_error() {
         let img = RgbImage::from_pixel(64, 64, Rgb([240, 240, 240]));
-        assert!(preprocess(Decoded { image: DynamicImage::ImageRgb8(img), icc_profile: None }).is_err());
+        assert!(preprocess(Decoded { image: DynamicImage::ImageRgb8(img), icc_profile: None }, &Options::default()).is_err());
     }
 }

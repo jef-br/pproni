@@ -1,13 +1,6 @@
-//! R3 — no verdict (EIX not set).
-//!
-//! Reached when the classifier could not produce an answer at all: a failed inference, an unusable
-//! model output. There is no subject box to anchor on, so this route makes no claim about where the
-//! subject is — it fits the *whole* image, uncropped, into a square canvas sized to the original's
-//! largest dimension, centred, with the remainder filled white.
-//!
-//! Nothing is cropped and nothing is scaled, so a wrong guess here costs framing, never pixels. It
-//! is the safe answer for "we don't know", which is why it is a route of its own rather than a
-//! degenerate case of R1.
+//! R3 — no verdict (EIX not set). Fits the *whole* image, uncropped and unscaled, centred on a
+//! square canvas sized to the original's longest side, the remainder filled white.
+//! See docs/architecture/modules/core-processor-routes.md.
 
 use super::super::super::preprocessor::Prepared;
 use image::{Rgb, RgbImage};

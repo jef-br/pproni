@@ -15,7 +15,7 @@ both layers together.
 
 Maintenance rule: one node per module, one per struct/enum. When the orchestrator
 reports a new/renamed/removed symbol, find its node (or the right container per
-`docs/ARCHITECTURE.md` §6), patch it, and confirm both XML and rendered layers
+`docs/architecture/06-diagram.md`), patch it, and confirm both XML and rendered layers
 changed.
 
 Report: which nodes changed and why. If a symbol has no obvious home node, say so

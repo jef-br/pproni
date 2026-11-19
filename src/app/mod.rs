@@ -20,8 +20,7 @@ pub fn run_default() {
     shell::run();
 }
 
-/// Non-Windows fallback: the default folder flow is Windows-only; direct callers use the
-/// `<input_dir> <output_dir>` argument form instead.
+/// Non-Windows: the folder flow is Windows-only.
 #[cfg(not(windows))]
 pub fn run_default() {
     eprintln!("usage: {} <input_dir> <output_dir>", env!("CARGO_BIN_NAME"));

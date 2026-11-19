@@ -1,32 +1,17 @@
-//! Shot classifier: is the subject touching an image border?
-//!
-//! A bounding box can't answer this reliably — the box can touch an
-//! edge while the actual subject silhouette doesn't (or vice versa for
-//! a diagonal pose). This module answers it with segmentation instead,
-//! in two passes:
-//!
-//! - **Pass 1** ([`gate`]): a cheap scan of the segmentation mask's
-//!   border-adjacent band, per edge, to decide which edges are even
-//!   worth checking precisely. This is the filter that keeps the
-//!   expensive path off the common case (subject nowhere near an edge).
-//! - **Pass 2** ([`refine`]): for edges pass 1 flagged, intersects the
-//!   mask with the border band, rescales that region to full original
-//!   resolution, crops it, and refines the boundary there via a
-//!   trimap + color-distance matting step — because the segmentation
-//!   mask is upsampled from a lower internal resolution and isn't
-//!   pixel-accurate at the boundary. Only the refined, full-resolution
-//!   result decides touching or not.
-//!
-//! [`segmentation::SegmentationModel`] abstracts the actual BiRefNet
-//! inference call, so the gate/refine logic can be exercised against a
-//! stand-in model. [`super::classify`] wires the real one up and feeds
-//! [`classify_instance`] the preprocessor's two resolutions.
+//! Shot classifier: is the subject touching an image border? Answered from segmentation, not a
+//! bounding box, in two passes: [`gate`] (a cheap border-band scan per edge), then [`refine`]
+//! (trimap + colour matting at full resolution; only its result decides). See
+//! docs/specs/03-shot-classifier.md. Wiring to [`super::classify`], [`route`] and [`plan`]: see
+//! docs/architecture/modules/core-shot-classifier.md.
 
 pub mod birefnet;
-mod cipher;
+pub(crate) mod cipher;
 pub mod gate;
 pub mod geometry;
+mod gpu_adapters;
+pub mod plan;
 pub mod refine;
+pub mod route;
 pub mod sampling;
 pub mod segmentation;
 pub mod shotcode;
@@ -47,26 +32,20 @@ fn edge_name(e: Edge) -> &'static str {
     }
 }
 
-/// Full verdict for one detected instance: which edges, if any, it
-/// actually touches, and whether the mask behind that answer is worth
-/// believing at all.
+/// Verdict for one instance: the edges it touches, and whether its mask is worth believing.
 #[derive(Debug, Clone, Default)]
 pub struct ShotClassification {
     pub touches_edges: Vec<Edge>,
-    /// The mask covers too little of the frame to be a subject — see [`shotcode::mask_too_small`].
-    ///
-    /// Measured here, next to the mask it is measured from, and consumed in two places: routing
-    /// sends it to the route that crops rather than the one that frames, and the debug tag reports
-    /// it. Neither recomputes it, so the tag can never disagree with the route.
+    /// The mask covers too little of the frame to be a subject ([`shotcode::mask_too_small`]).
+    /// Measured once, here; [`route`] (crop, not frame) and the debug tag both read it. Never
+    /// recompute it elsewhere, or the tag can disagree with the route.
     pub mask_too_small: bool,
-    /// Per-edge refinement detail, for edges pass 1 flagged as worth
-    /// checking — useful for logging or visual export even when the
-    /// verdict came back "not touching".
+    /// One entry per edge pass 1 flagged, kept even when the verdict is "not touching" (for logging
+    /// and visual export).
     pub refinements: Vec<EdgeRefinement>,
 }
 
-/// Runs both passes for one instance: gates on all four edges, then
-/// refines only the ones the gate flagged.
+/// Runs both passes for one instance: gate on all four edges, refine only the flagged ones.
 pub fn classify_instance(input: &RefinementInput, gate_margin_px: u32, params: RefineParams) -> ShotClassification {
     let proximity = gate::gate(&input.instance.mask, gate_margin_px);
     trace::note(|| format!("gate flagged {:?} (band {gate_margin_px}px)", proximity.near));
@@ -81,7 +60,8 @@ pub fn classify_instance(input: &RefinementInput, gate_margin_px: u32, params: R
         refinements.push(result);
     }
 
-    let mask_too_small = shotcode::mask_too_small(input.working_image, &input.instance.mask);
+    let mask_too_small =
+        shotcode::mask_too_small(input.working_image, input.original_image, &input.instance.mask);
     trace::note(|| format!(
         "EIX={} (Top,Right,Bottom,Left), mask_too_small = {mask_too_small}",
         shotcode::eix_bits(&touches_edges)

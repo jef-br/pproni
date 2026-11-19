@@ -1,47 +1,11 @@
-//! Batch-run the shot classifier (BiRefNet backend) over a folder of
-//! images. For every input, these files are written into `<output_dir>`:
+//! Batch-run the shot classifier (BiRefNet backend) over a folder of images or one image, writing
+//! into `<output_dir>` each input renamed with its partial shot code, its segmask, the refine
+//! canvas if an edge was gated, and a results JSON. See docs/architecture/modules/examples.md.
 //!
-//!   <stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].<ext>
-//!                          the input image, copied verbatim, renamed   (step 0)
-//!                          with the shot code derived so far
-//!   <stem>___3-class_10_SEGMASK.png
-//!                          BiRefNet foreground mask                    (step 1)
-//!   <stem>___3-class_20_REFINE.png
-//!                          white canvas the size of the segmask with   (step 2)
-//!                          each gated edge's refined region pasted back
-//!                          (only if an edge was gated)
+//! Usage: cargo run --release --example run_dir -- <input> [output_dir]
 //!
-//! plus `zzz_results.json` (named to sort last). Snapshots follow the diagram-tag protocol
-//! (`docs/diagrams/README.md`): `<stem>___<moduleindex>_<substep>_<TAG>.png`, where `<TAG>` is the
-//! green-bold word on the matching rectangle of `JBA2B.drawio.svg`, verbatim. Sorting the names
-//! alphabetically reproduces pipeline order, and the flat output keeps each image's files together.
-//!
-//! Shot code (partial — BG type comes later):
-//!   EIX  edge intersection, 4-bit TRBL (top-right-bottom-left). `1000`
-//!        = top only, `0110` = right+bottom, `0000` = no intersection.
-//!        Always the classifier's real verdict — a `mask_too_small` flag
-//!        (probable full-bleed close-up: tiny mask, no uniform background)
-//!        is reported separately (console/JSON) and never overrides it.
-//!   BGC  background colour: dominant colour of the inverse BiRefNet
-//!        mask, emitted only when it covers >97.5% of that region.
-//!   FGC  foreground colour: weighted-median colour of the largest colour
-//!        blob inside the mask. Omitted if the subject is too small to
-//!        sample.
-//!   `--` separates the stem from the tags; `=` stands in for the spec's
-//!   `:` (a colon is illegal in Windows filenames).
-//!
-//! The EIX bits come from `pproni::core::shot_classifier::shotcode`, the colours from
-//! `pproni::core::exporter::colors` — the same code the pipeline exporter uses for its
-//! `PPRONI_DEBUG_TAGS` output.
-//!
-//! Usage:
-//!   cargo run --release --example run_dir -- <input> [output_dir]
-//!   <input> is a folder of images or a single image file.
-//!
-//! Model:
-//!   By default this runs the same weights the exe ships with, embedded at build time. Set
-//!   BIREFNET_ONNX to a path to run a different export instead — that is what this harness is for.
-//!   ORT_DYLIB_PATH overrides the ONNX Runtime library (default: ./onnxruntime.dll).
+//! BIREFNET_ONNX runs that export instead of the embedded weights (what this harness is for);
+//! ORT_DYLIB_PATH overrides the ONNX Runtime library (default: ./onnxruntime.dll).
 
 use pproni::core::shot_classifier::geometry::Rect;
 use pproni::core::shot_classifier::refine::{RefineParams, RefinementInput};
@@ -53,9 +17,8 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_OUTPUT: &str = "test data/OUTPUT";
 
-// Snapshot name suffixes, `___<moduleindex>_<substep>_<TAG>.png`. Each TAG is the green-bold word on
-// its rectangle of `docs/diagrams/JBA2B.drawio.svg` and is copied verbatim. `3-class` is the Shot
-// Classifier container; the substeps are gapped by 10s in execution order inside it.
+// Snapshot name suffixes; each TAG must match its rectangle's green-bold word on
+// `docs/diagrams/JBA2B.drawio.svg` verbatim. See docs/diagrams/run-dir-tag-protocol.md.
 const SEGMASK_SUFFIX: &str = "___3-class_10_SEGMASK.png";
 const REFINE_SUFFIX: &str = "___3-class_20_REFINE.png";
 
@@ -69,11 +32,8 @@ fn main() {
 
     let model_path = std::env::var("BIREFNET_ONNX").ok();
     let ort_lib = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "onnxruntime.dll".into());
-    // Hand the loader an absolute path. A bare file name goes to the OS library
-    // search, which reaches System32 — where Windows ships its own, older
-    // onnxruntime.dll — before it ever looks at the working directory. The
-    // result is a version-mismatch panic naming a DLL you did not choose.
-    // `join` on an already-absolute ORT_DYLIB_PATH keeps it unchanged.
+    // Absolute path, or the OS search finds System32's older onnxruntime.dll first.
+    // See docs/architecture/modules/examples.md.
     let ort_lib = std::env::current_dir()
         .map(|dir| dir.join(&ort_lib))
         .ok()
@@ -100,8 +60,7 @@ fn main() {
     }
 
     std::fs::create_dir_all(&output_dir).expect("could not create output dir");
-    // Only wipe OUTPUT for a full-folder run; a single-file run just
-    // overwrites that image's own outputs.
+    // Wipe OUTPUT only on a folder run; a single-file run overwrites just its own outputs.
     if meta.is_dir() {
         let cleared = clear_output_files(&input, &output_dir);
         if cleared > 0 {
@@ -131,8 +90,8 @@ fn main() {
         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("img");
 
-        // Debug trace (PPRONI_DEBUG_TAGS marker file next to run_dir.exe): every stage image this
-        // run produces, as `<stem>  -  NN.jpg`, written next to run_dir's output files.
+        // Debug trace, with a `PPRONI_DEBUG_TAGS` marker next to run_dir.exe: stage images go next
+        // to the outputs. See docs/architecture/02-debug-tags.md.
         let trace_target = output_dir.join(&file_name);
         let _trace = pproni::core::trace::begin(&trace_target);
 
@@ -193,9 +152,7 @@ fn main() {
         }
         let _ = m.save(output_dir.join(format!("{stem}{SEGMASK_SUFFIX}")));
 
-        // step 2: one canvas the size of the segmask, white except for
-        // the refined region of each gated edge, pasted back where it
-        // sits in the frame (top region up top, bottom down low, etc.).
+        // step 2: white segmask-sized canvas, each gated edge's refined region pasted in place.
         let regions: Vec<Rect> = result
             .refinements
             .iter()
@@ -235,8 +192,7 @@ fn main() {
     }
 
     let json = format!("[\n{}\n]\n", json_rows.join(",\n"));
-    // Folder run -> the aggregate `zzz_results.json`; single-file run ->
-    // `<stem>_results.json`, so it never clobbers a folder run's report.
+    // A single-file run writes `<stem>_results.json`, never clobbering `zzz_results.json`.
     let json_name = if meta.is_dir() {
         "zzz_results.json".to_string()
     } else {
@@ -260,9 +216,8 @@ fn is_image(p: &Path) -> bool {
     )
 }
 
-/// Deletes regular files sitting directly in `output_dir` so a re-run
-/// doesn't leave stale crops from a previous verdict. Subdirectories are
-/// left untouched, and it refuses if output and input are the same folder.
+/// Delete the regular files directly in `output_dir` (stale crops of a previous verdict) and return
+/// the count. Subfolders stay; does nothing if output and input are the same folder.
 fn clear_output_files(input_dir: &Path, output_dir: &Path) -> usize {
     let same = std::fs::canonicalize(input_dir).ok() == std::fs::canonicalize(output_dir).ok();
     if same {

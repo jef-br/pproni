@@ -1,11 +1,6 @@
-//! Pass 1: the cheap gate.
-//!
-//! Scans only a `margin_px`-wide band along each edge of the mask — not
-//! the whole mask, not the image — so this stays fast across a whole
-//! batch. A positive result means "worth running pass 2 refinement for
-//! this edge", not "this instance touches the border": the mask is
-//! still working-resolution and upsampled, so it isn't trusted for the
-//! actual yes/no decision.
+//! Pass 1, the cheap gate: scans only a `margin_px`-wide band along each edge of the mask, so it
+//! stays fast across a batch. A hit means "run pass 2 on this edge", not "touches". See
+//! docs/specs/03-shot-classifier.md.
 
 use super::geometry::{Edge, EdgeView, Grid};
 use super::segmentation::Mask;

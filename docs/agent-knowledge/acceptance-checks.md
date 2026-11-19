@@ -15,7 +15,7 @@ the actual measured number — never "looks fine". Labels resolve via
   trim `output1` again → `output2`, then compare `diff(input, output1)` against
   `diff(output1, output2)`. A well-behaved trim is a near-no-op the second time, so
   `diff2 ≈ empty`; a spurious fill band makes `diff2` non-empty and fails the check.
-- **Streak-vs-background metric (decided in /pair 2026-10-20):**
+- **Streak-vs-background metric (decided 2026-10-20):**
   - Reference = median colour of a **clean local background patch adjacent to
     the former streak** (not pure white, not the global BGC).
   - Target = median colour of the former-streak region.
@@ -34,7 +34,7 @@ the actual measured number — never "looks fine". Labels resolve via
 |---|---|---|---|
 | 1 | det3, det4 (48, 49) | no wrong-colour band in fill | no band of **any** colour wrongly introduced (method below) |
 | 2 | det3, det4 (48, 49) | coverage | 100% filled, zero transparent |
-| 3 | 10, 11 | former grey streak | ΔE2000(streak median, local bg median) ≤ threshold (number in /pair) |
+| 3 | 10, 11 | former grey streak | ΔE2000(streak median, local bg median) ≤ threshold (number not set yet, see above) |
 | 4 | 268 (46), mountain (41) | textured scene | no flat-white band present |
 | 5 | large square + thin white margin | no wrongful peel | EIX stays `0000` |
 | 6 | 246 (45) | frame case | stays `EIX0000` (246 frame case, out of scope) |
