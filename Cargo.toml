@@ -30,17 +30,16 @@ tintbox = "0.4.0"
 # ONNX Runtime — real BiRefNet inference, always built in.
 #
 # `load-dynamic` is not the preference, it is the only thing that works today. Static linking is
-# what the single-exe requirement needs, and pyke does publish a prebuilt static ONNX Runtime for
-# x86_64-pc-windows-msvc (`ortrs_static` in ort-sys' dist.txt) — but it is ORT **1.20.0**, and
-# BiRefNet's decoder needs the native `DeformConv` op that only lands in ORT 1.22. Linking it
-# builds fine and then fails at session load with "Could not find an implementation for
-# DeformConv(19)". Later ort releases do not rescue this: from rc.13 the Windows distribution is
-# Microsoft's own build (ms@1.28.0), which is a DLL — pyke stopped shipping static Windows libs.
+# what the single-exe requirement needs, but no static ONNX Runtime with the graphics-card (DirectML)
+# support exists: pyke's only prebuilt static one for x86_64-pc-windows-msvc (`ortrs_static` in
+# ort-sys' dist.txt) is CPU-only ORT **1.20.0**, and from rc.13 the Windows distribution is
+# Microsoft's own build (ms@1.28.0), which is a DLL. (The stock BiRefNet export also needs the native
+# `DeformConv` op, which only lands in ORT 1.22; the shipped model has it rewritten away.)
 #
-# So the exe is still one file, just not by linking: `core::runtime` embeds `onnxruntime.dll` with
-# include_bytes! and unpacks it to a temp path for `ort::init_from` on first use. Closing this the
-# clean way means building ORT >= 1.22 static from source and pointing `ORT_LIB_LOCATION` at it.
-# docs/architecture/05-single-exe.md has the detail.
+# So the exe is still one file, just not by linking: `core::runtime` embeds
+# `onnxruntime-directml.dll` (one DLL for graphics card and CPU) with include_bytes! and unpacks it
+# to a per-user cache path for `ort::init_from` on first use. `DirectML.dll` is not embedded: it
+# comes with Windows 10 1903 and newer. docs/architecture/05-single-exe.md has the detail.
 #
 # The ort-sys pin is load-bearing for a second reason. Left to resolve it picks rc.13, whose build
 # script does not compile against ureq 3's TLS API.
@@ -59,9 +58,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_Globalization",
     "Win32_System_Com",
     "Win32_System_Console",
-    # PProni-GPU: pre-load the embedded DirectML.dll. (The graphics adapter list uses DXGI, which
-    # this windows-sys version has no bindings for - see shot_classifier/gpu_adapters.rs.)
-    "Win32_System_LibraryLoader",
 ] }
 
 # Windows resources (the exe icon). Build-time only; see build.rs.
@@ -70,11 +66,11 @@ winresource = "0.1"
 
 # Anti-RE + single-exe hardening. No PDB, no symbols, one codegen unit, abort on panic.
 #
-# The target is ONE hardened exe, no install. Half met: the BiRefNet weights are embedded in the
-# binary by `shot_classifier::birefnet`, so the most copyable thing Pproni owned is no longer a loose
-# file. `onnxruntime.dll` is still loaded from beside the exe — see the ort dependency above for
-# why, and docs/architecture/05-single-exe.md for what closing it takes. Fat LTO over an embedded
-# ~179MB model makes release links slow and memory-hungry; that is a build-time cost only.
+# The target is ONE hardened exe, no install. Met: the BiRefNet weights and the ONNX Runtime
+# (`onnxruntime-directml.dll`) are embedded in the binary, so nothing sits beside it — see the ort
+# dependency above for how the runtime is unpacked, and docs/architecture/05-single-exe.md. Fat LTO
+# over an embedded ~188MB model makes release links slow and memory-hungry; that is a build-time
+# cost only.
 [profile.release]
 opt-level = 3
 lto = "fat"

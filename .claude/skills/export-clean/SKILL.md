@@ -28,7 +28,7 @@ repo agrees on "no comments, no docs, no built files", so it gets a stripped cop
    - Any other file type stops the export, so nothing leaks with its comments.
 4. Refuses output containing any `forbidden_terms`.
 5. Wipes the clean clone's tracked files, writes the new set, copies the gitignored build
-   inputs (`models/*.onnx`, `onnxruntime.dll`) in, then runs `verify` (`cargo fmt`,
+   inputs (`models/*.onnx`, `onnxruntime-directml.dll`) in, then runs `verify` (`cargo fmt`,
    `cargo test`).
 6. Stages everything with `git add -A`. It never commits or pushes.
 

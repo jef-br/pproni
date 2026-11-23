@@ -4,10 +4,12 @@ Invariants that must never break. The correctness reviewer checks every one of
 these against each part's diff; a violation is a blocker, not a note.
 
 1. **Single hardened exe.** `cargo build --release` produces one exe and nothing
-   else. The `.onnx` model and `onnxruntime.dll` are embedded (model encrypted),
-   never shipped as a file beside the exe. A fix that "puts a file next to the
-   exe" is wrong by definition. (CLAUDE.md "Ships as one hardened exe";
-   memory: pproni-single-file-requirement.)
+   else. The two `.onnx` models (encrypted for now, see ticket #27) and one runtime,
+   `onnxruntime-directml.dll`, are embedded, never shipped as a file beside the exe.
+   The exe must not rely on an ONNX Runtime installed on the PC. The only Windows part
+   it uses is `DirectML.dll` (Windows 10 1903+), and without it the model runs on the
+   CPU. A fix that "puts a file next to the exe" is wrong by definition. (CLAUDE.md
+   "Ships as one hardened exe"; memory: pproni-single-file-requirement.)
 
 2. **No veepee ties.** No veepee / vptech references, identities, data, or deps
    enter the code, tests, assets, or docs. (memory: no-veepee-ties.)

@@ -6,8 +6,7 @@ Detail moved out of the `src/core/runtime.rs` comments. Why the ONNX Runtime is 
 the exe and unpacked rather than linked, and how it could be linked in later:
 [5. Single hardened exe](../05-single-exe.md).
 
-## Preloading `DirectML.dll`
-`preload_directml` loads our `DirectML.dll` by full path before the runtime asks for it by name.
-Windows hands a later request for the bare name `DirectML.dll` the copy already loaded, so the
-runtime gets the version we shipped, not whatever older one sits in System32. A failure is not fatal
-and not reported: the graphics-card route then fails to start and the model runs on the CPU.
+## `DirectML.dll` is not embedded
+The runtime asks Windows for `DirectML.dll` by name, and Windows 10 1903 and newer carry it in
+System32. Pproni does not ship its own copy (decided 2026-11-23; it saved 17.7 MB). If a PC's copy
+is missing or too old, the graphics-card route fails to start and the model runs on the CPU.

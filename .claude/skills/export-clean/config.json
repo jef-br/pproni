@@ -16,7 +16,7 @@
   "python_tools": ["tools/*.py"],
   "exclude": ["**/*.md"],
   "verbatim": ["Cargo.lock", "Pepperoni.ico", "tests/fixtures/*"],
-  "build_inputs": ["models/*.onnx", "onnxruntime.dll"],
+  "build_inputs": ["models/*.onnx", "onnxruntime-directml.dll"],
   "verify": [["cargo", "fmt"], ["cargo", "test"]],
   "forbidden_terms": ["veepee", "vptech"]
 }

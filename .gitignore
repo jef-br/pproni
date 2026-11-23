@@ -14,9 +14,8 @@ graphify-out/
 *.onnx.data
 onnxruntime.dll
 onnxruntime_providers_shared.dll
-# PProni-GPU: the DirectML build of ONNX Runtime and the DirectML library it needs.
+# The DirectML build of ONNX Runtime: the one runtime the exe embeds (graphics card, else CPU).
 onnxruntime-directml.dll
-DirectML.dll
 
 # Local run output
 /shot-classifier-output

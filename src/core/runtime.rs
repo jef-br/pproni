@@ -11,17 +11,12 @@ use std::path::{Path, PathBuf};
 static DYLIB_BYTES: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/onnxruntime-directml.dll"));
 
-/// The DirectML library the runtime above hands the model to. Extracted beside it.
-static DIRECTML_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/DirectML.dll"));
-
 const DYLIB_NAME: &str = "pproni.dll";
-/// DirectML is looked up by this exact name, so it keeps it.
-const DIRECTML_NAME: &str = "DirectML.dll";
 
-/// Every file the runtime needs on disk, as (name, bytes).
-fn embedded_files() -> [(&'static str, &'static [u8]); 2] {
-    [(DYLIB_NAME, DYLIB_BYTES), (DIRECTML_NAME, DIRECTML_BYTES)]
+/// Every file the runtime needs on disk, as (name, bytes). `DirectML.dll` is not one of them: it
+/// comes with Windows 10 1903 and newer. See docs/architecture/modules/core-runtime.md.
+fn embedded_files() -> [(&'static str, &'static [u8]); 1] {
+    [(DYLIB_NAME, DYLIB_BYTES)]
 }
 
 /// Path to an `onnxruntime.dll` on disk that `ort` can load.
@@ -35,30 +30,8 @@ pub fn onnxruntime_dylib() -> Result<PathBuf, String> {
             return Ok(p);
         }
     }
-    let dylib = extract_embedded()?;
-    if let Some(dir) = dylib.parent() {
-        preload_directml(dir);
-    }
-    Ok(dylib)
+    extract_embedded()
 }
-
-/// Loads our `DirectML.dll` into the process by full path, before the runtime asks for it by name,
-/// so the runtime gets the version we shipped, not an older one in System32. A failure is not fatal
-/// and not reported (the model then runs on the CPU). The handle is deliberately never released.
-/// See docs/architecture/modules/core-runtime.md.
-#[cfg(windows)]
-fn preload_directml(dir: &Path) {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
-
-    let wide: Vec<u16> = dir.join(DIRECTML_NAME).as_os_str().encode_wide().chain(Some(0)).collect();
-    unsafe {
-        LoadLibraryW(wide.as_ptr());
-    }
-}
-
-#[cfg(not(windows))]
-fn preload_directml(_dir: &Path) {}
 
 /// Write the embedded files to `<base>/pproni-<tag>/`, reusing any already there at the right size.
 /// `<base>` is the first writable of `%LOCALAPPDATA%`, the system temp dir and the exe's own
@@ -149,7 +122,6 @@ fn cache_tag() -> String {
         }
     };
     feed(&(n as u64).to_le_bytes());
-    feed(&(DIRECTML_BYTES.len() as u64).to_le_bytes());
     feed(&DYLIB_BYTES[..SAMPLE.min(n)]);
     feed(&DYLIB_BYTES[n / 2..(n / 2 + SAMPLE).min(n)]);
     feed(&DYLIB_BYTES[n.saturating_sub(SAMPLE)..]);

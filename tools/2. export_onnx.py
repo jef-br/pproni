@@ -15,7 +15,9 @@ Side notes, measured on an i7-12700H:
 Opset 20 matters: it exports the decoder's deformable convolutions as a single
 native `DeformConv` op. An older opset makes torch decompose them into a
 GatherND graph of ~16k nodes that is far slower and blows up memory. `DeformConv`
-needs ONNX Runtime >= 1.22 at inference; the bundled onnxruntime.dll is 1.25.
+needs ONNX Runtime >= 1.22 at inference, and DirectML cannot run it: the exe embeds a copy
+with `DeformConv` rewritten as GridSample + Conv (see models/README.md). The embedded
+onnxruntime-directml.dll is 1.24.
 
 The export traces eval mode, so BiRefNet's training-only heads
 (`conv_ms_spvn_*`, `gdt_convs_pred_*`) are absent from the graph by design.

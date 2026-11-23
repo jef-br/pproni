@@ -266,7 +266,7 @@ def check_clean_clone(clean):
 
 def wipe(clean, dry_run):
     if dry_run:
-        keep = {".git", "target", "models", "onnxruntime.dll", DRYRUN_MARKER}
+        keep = {".git", "target", "models", "onnxruntime-directml.dll", DRYRUN_MARKER}
         for child in clean.iterdir():
             if child.name not in keep:
                 shutil.rmtree(child) if child.is_dir() else child.unlink()

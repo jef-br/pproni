@@ -18,7 +18,7 @@ Detail moved out of source comments that had no other home in the docs
 | [core-preprocessor-optimizer.md](core-preprocessor-optimizer.md) | why the colour balance, the trims, the letterbox / bar detector |
 | [core-processor-routes.md](core-processor-routes.md) | `processor/mod.rs`, `routes/mod.rs`, R2 `crop_square`, R3 `fallback` |
 | [core-processor-routes-center-and-stretch.md](core-processor-routes-center-and-stretch.md) | R1: silhouette, the stretch, the flat gate, grazed lines (second test, patch fill), edge gradients, the solid-background look, seam-carve reframe |
-| [core-runtime.md](core-runtime.md) | `src/core/runtime.rs` (DirectML preload) |
+| [core-runtime.md](core-runtime.md) | `src/core/runtime.rs` (why `DirectML.dll` is not embedded) |
 | [core-shot-classifier.md](core-shot-classifier.md) | `src/core/shot_classifier/` wiring, `gate`, `cipher`, `gpu_adapters` |
 | [core-shot-classifier-birefnet.md](core-shot-classifier-birefnet.md) | tensors, `DeformConv` rewrite, session memory, `logit`, loading |
 | [core-shot-classifier-geometry.md](core-shot-classifier-geometry.md) | who goes through `EdgeView`, `Grid` implementors |

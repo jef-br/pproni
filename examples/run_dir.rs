@@ -4,8 +4,9 @@
 //!
 //! Usage: cargo run --release --example run_dir -- <input> [output_dir]
 //!
-//! BIREFNET_ONNX runs that export instead of the embedded weights (what this harness is for);
-//! ORT_DYLIB_PATH overrides the ONNX Runtime library (default: ./onnxruntime.dll).
+//! BIREFNET_ONNX runs that export instead of the embedded weights (what this harness is for).
+//! The ONNX Runtime is the exe's own (`core::runtime`), so a run here is on the same runtime and
+//! the same graphics card as the shipped exe; ORT_DYLIB_PATH overrides it (as for the exe).
 
 use pproni::core::shot_classifier::geometry::Rect;
 use pproni::core::shot_classifier::refine::{RefineParams, RefinementInput};
@@ -31,16 +32,6 @@ fn main() {
     let output_dir = PathBuf::from(args.next().unwrap_or_else(|| DEFAULT_OUTPUT.into()));
 
     let model_path = std::env::var("BIREFNET_ONNX").ok();
-    let ort_lib = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| "onnxruntime.dll".into());
-    // Absolute path, or the OS search finds System32's older onnxruntime.dll first.
-    // See docs/architecture/modules/examples.md.
-    let ort_lib = std::env::current_dir()
-        .map(|dir| dir.join(&ort_lib))
-        .ok()
-        .filter(|path| path.is_file())
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or(ort_lib);
-
     let meta = std::fs::metadata(&input)
         .unwrap_or_else(|e| panic!("cannot open {}: {e}", input.display()));
     let mut entries: Vec<PathBuf> = if meta.is_dir() {
@@ -68,6 +59,8 @@ fn main() {
         }
     }
 
+    // The same call the exe makes. See docs/architecture/modules/examples.md.
+    let ort_lib = pproni::core::runtime::onnxruntime_dylib().expect("failed to unpack ONNX Runtime");
     BiRefNetModel::init_runtime(&ort_lib).expect("failed to load ONNX Runtime");
     let model = match &model_path {
         Some(path) => {

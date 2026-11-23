@@ -42,8 +42,13 @@ The EIX bits come from `pproni::core::shot_classifier::shotcode`, the colours fr
 `pproni::core::exporter::colors` — the same code the pipeline exporter uses for its
 `PPRONI_DEBUG_TAGS` output ([debug tags](../02-debug-tags.md)).
 
-## Both: why the runtime path is made absolute
-Both harnesses hand the loader an absolute path. A bare file name goes to the OS library search,
-which reaches System32 — where Windows ships its own, older `onnxruntime.dll` — before it ever
-looks at the working directory. The result is a version-mismatch panic naming a DLL you did not
-choose. `join` on an already-absolute `ORT_DYLIB_PATH` keeps it unchanged.
+## Both: they use the exe's own runtime
+Both harnesses get the ONNX Runtime from `core::runtime::onnxruntime_dylib()`, the call the exe
+makes: the embedded DirectML build, unpacked to a per-user cache folder (see
+[5. Single hardened exe](../05-single-exe.md)). So a run here uses the same runtime and the same
+graphics card, else the CPU, as the shipped exe, and no loose `onnxruntime.dll` is needed in the
+repo. The path is always a full path, so the OS library search never reaches System32's own, older
+`onnxruntime.dll`. `ORT_DYLIB_PATH` still overrides it, exactly as for the exe.
+
+`inspect_birefnet` reads a model *file*; its default is the file `build.rs` embeds
+(`models/birefnet_512_nodeform_op19.onnx`). Change both together.
