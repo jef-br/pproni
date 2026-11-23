@@ -125,7 +125,7 @@ distance, channel), so the same picture always gives the same grain.
 R1 runs it (`R1Job::Reframe`, chosen in `shot_classifier::route`) when the preprocessor trimmed
 flat letterbox/pillarbox bars round a textured scene (`preprocessor::optimizer::trim_letterbox`,
 `Prepared::letterbox`; see [the letterbox detector](core-preprocessor-optimizer.md)). Such a scene
-is reframed **without** R1's stretch, which smears a textured overhang (measured on 268/46).
+is reframed **without** R1's stretch, which smears a textured overhang (measured on 46).
 `reframe_to_square` is pure and tries, highest first:
 
 1. **Crop** (`square_crop_preserving`): the largest square crop (the shorter frame side) that still

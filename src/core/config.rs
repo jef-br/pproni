@@ -167,8 +167,8 @@ pub const R1_FLAT_EDGE_FADE_SHARE: f32 = 0.25;
 // See docs/work-state/2026-11-13-flat-edge-gradients.md.
 
 /// Second test, the edge counts as flat (no variance) when its outermost pixel line, safe lines only,
-/// spans at most this many levels (0..255) between its 5th and 95th percentile. 3 is the proposal of
-/// 2026-11-18, not yet confirmed by the user; the cores' flat edges measure 0 to 13.
+/// spans at most this many levels (0..255) between its 5th and 95th percentile. 3 was proposed on
+/// 2026-11-18 and confirmed by the user on 2026-11-20; the cores' flat edges measure 0 to 13.
 pub const R1_GRAZE_FLAT_TOLERANCE: u32 = 3;
 
 /// Side of the patch the fill copies, in canvas pixels (odd).

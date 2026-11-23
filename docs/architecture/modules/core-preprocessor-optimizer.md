@@ -50,7 +50,7 @@ whether the background outside the product proxy is textured. The proxy is `prod
 there is no segmask this far upstream. `detect_letterbox` reads it to find flat padding bars on a
 textured scene; `preprocess` calls it on the full-resolution image, before the mask exists, and keeps the result
 in `Prepared::letterbox`; `original` itself is left whole. R1 reads `letterbox` and re-frames the
-trimmed part (`extend::reframe_to_square`). The motivating images: mountain and 268 (flat bars on
+trimmed part (`extend::reframe_to_square`). The motivating images: 41 and 46 (flat bars on
 a textured scene).
 
 ## When bars are trimmed

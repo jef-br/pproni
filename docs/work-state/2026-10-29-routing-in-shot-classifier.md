@@ -24,12 +24,12 @@
 * Open, PARKED 2026-10-29 for the morning: the user sees pproni "stuck" when headcutting is chosen. Not
   reproduced (batch, real console, and the desktop flow on a scratch Desktop all finish in ~15 s). Ask first:
   which screen, what was typed (`ask_yes_no` re-asks silently on anything but Y/N), which exe, does N work.
-* Explained 2026-10-30, waiting for the user's decision: 104051820_det3, 104051873_det3 and 104051875_det3 came
+* Decided 2026-11-20 (user): the 733 px rule stays absolute, in original pixels. Explained 2026-10-30: 104051820_det3, 104051873_det3 and 104051875_det3 came
   out uncropped (2000x2000) because the user's run used 2000 px copies of the shoes (the earlier outputs fed back
   in; `PPRONI-BACKUP` now holds those copies, not the 3872 px originals). At 2000 px their mask's longest side is
   633, 691 and 664 px, under 733, with area under 5%, so the rule calls them too small and R2 keeps the whole
   frame. At 3872 px (1226, 1339, 1286 px) the same photos pass and get the 4.2% crop. Same four-shoe check: 800,
   809, 814, 815 are 808, 746, 902, 883 px at 2000 and did get R1 (their output sizes match 1.084 x longest side).
-  The rule measures absolute original pixels, so it depends on the input resolution. Not a code bug.
+  The rule measures absolute original pixels, so it depends on the input resolution. Not a code bug; kept on purpose.
 * Open: the GPU run sometimes loses most verdicts silently (`EIX=____`, route R3, about 36 s instead of 14 s):
   2 of 4 identical runs on 2026-10-29. Not looked into; the model error is swallowed in `core::classify`.

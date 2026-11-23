@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn crop_preserves_a_subject_that_fits_the_shorter_side() {
-        // 2000x1245 (268 after a letterbox trim): a 1245 square around a subject that fits.
+        // 2000x1245 (46 after a letterbox trim): a 1245 square around a subject that fits.
         let subject = Rect { x: 600, y: 200, w: 800, h: 900 };
         let keep = square_crop_preserving(subject, 2000, 1245).expect("subject fits a 1245 square");
         assert_eq!((keep.w, keep.h), (1245, 1245), "square at the shorter side");
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn crop_declines_a_subject_taller_than_the_shorter_side() {
-        // 972x1310 (mountain after a pillarbox trim): the subject is 1218 tall, taller than the
+        // 972x1310 (41 after a pillarbox trim): the subject is 1218 tall, taller than the
         // 972 shorter side, so no square crop preserves it — this is the case that needs seam-carve.
         let subject = Rect { x: 0, y: 46, w: 617, h: 1218 };
         assert!(square_crop_preserving(subject, 972, 1310).is_none());

@@ -13,7 +13,7 @@
   * Agents may ask the user permission to add other images.
   * The user can be asked to look for specific other images.
   * The runner must **never assume fixed contents** and read it at run time.
-  - Path: `C:\Users\JefB\Desktop\PPRONI-INPUT`
+  - Path: `<the user's Desktop folder>\PPRONI-INPUT` (for example: `C:\Users\JefB\Desktop\PPRONI-INPUT`)
 
 - **`PPRONI-BACKUP`** — a *variable* working folder that contains the original
 images. Use this folder to recover the originals for a before/after review.
@@ -21,11 +21,19 @@ images. Use this folder to recover the originals for a before/after review.
 - **`PPRONI-OUTPUT`** — a *variable* working folder that contains the processed
 images. Use this folder to recover the "after" images.
 
+## Other `JB` folders
+Folders at the repo root whose name starts with `JB` belong to the user: the user uses and controls
+them, agents do not reference or touch them. They hold sample images, work notes or temporary files
+for one piece of Pproni, and disappear when that piece is done. Today: `JB cuts back only` and
+`JB headcut images`. The one exception is `JB core img batch` above, which agents read.
 
 ## Run discipline
 
 - Verification runs on a **copy**, never the original set. Copy into the
-  session scratchpad and run there.
+  session scratchpad and run there. A run moves files: after a successful save the original goes
+  from `PPRONI-INPUT` to `PPRONI-BACKUP` and the processed image lands in `PPRONI-OUTPUT`. A file
+  that fails stays in `PPRONI-INPUT` untouched; nothing is copied to `PPRONI-BACKUP`
+  (`app::batch::run`, `core::exporter`).
 - Build: `cargo build --release` (produces the single hardened exe — see
   [hard-bounds.md](hard-bounds.md)).
 - Debug tags: drop an (empty) file literally named `PPRONI_DEBUG_TAGS` next to
@@ -33,7 +41,12 @@ images. Use this folder to recover the "after" images.
   verdict-tagged outputs:
   - `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].jpg` — the renamed export
     (`=` stands in for `:`). **EIX is read straight from this filename** — so
-    checks 5/6 (EIX stays `0000`) are a filename read, not a pixel scan.
+    check 5 (EIX stays `0000`) is a filename read, not a pixel scan.
+  - With no verdict (the classifier gave no answer) the name is `<stem>--EIX=____.jpg` and no
+    segmask is written.
   - `<stem>_segmask.jpg` — the segmentation mask, sRGB JPEG at output size.
-  - Outputs land in the run's output dir (what `examples/run_dir.rs` writes to).
+  - The same marker also switches on the per-stage trace and `log.txt`
+    (see [architecture: debug tags](../architecture/02-debug-tags.md)).
+  - Outputs land in the output folder the exe was given. (The dev harness `examples/run_dir.rs`
+    writes its own names, e.g. `___3-class_10_SEGMASK.png`.)
     Source of truth: [architecture: debug tags](../architecture/02-debug-tags.md), `core::exporter`.

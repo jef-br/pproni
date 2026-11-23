@@ -16,15 +16,18 @@ these against each part's diff; a violation is a blocker, not a note.
 
 3. **EIX no-flip bound.** Never flip a freestanding object on a plain backdrop
    from `EIX0000`. A missed frame is acceptable; a wrongly-peeled margin is not.
-   246 (the 246 frame case) is out of scope for the background-fill work and
+   (*Flip* = the edge verdict changes from `0000` to anything else. *Peel* = the framing step that
+   crops away a frame round the picture, `Decision::Peel` in `core::framing`; a wrongly-peeled margin
+   is a peel on a picture that has no frame.)
+   45 (the frame case) is out of scope for the background-fill work and
    stays `EIX0000`.
 
 4. **Permitted backgrounds.** A background is one of three types, and the output never
-   leaves transparency:
+   has a transparent area: preprocessing flattens any alpha on white and the output is a JPEG:
    - **(a) Flat artificial** — most often 100% flat solid white.
    - **(b) Natural** — any colour, little texture, so easily stretchable.
    - **(c) Mixed / lifestyle / ambiance** — at least one major area that is *not* easily
-     stretchable, so it needs seam-carving / inpainting. (Owned by the lifestyle/R1 session.)
+     stretchable, so it needs seam-carving / inpainting. (Handled in R1.)
 
 5. **No unrequested behaviour.** No fallbacks, guards, retries, or new code paths
    beyond what the plan states, without the user agreeing first. (CLAUDE.md

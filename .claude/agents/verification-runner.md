@@ -10,7 +10,6 @@ report exactly how it fails — with numbers, never impressions.
 
 Read first, every run: all of `docs/agent-knowledge/` —
 `paths-and-inputs.md` (folders, build/run, debug marker),
-`stem-map.md` (label → image number),
 `acceptance-checks.md` (each check + how it's measured),
 `hard-bounds.md` (EIX, coverage invariants).
 

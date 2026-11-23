@@ -124,7 +124,7 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
         );
     };
     // Textured scene with flat bars: reframe, not stretch, which smears a band across a textured
-    // overhang (268/46). After the subject guard so the mask gives the real box. When
+    // overhang (46). After the subject guard so the mask gives the real box. When
     // `prep.letterbox` fires: See docs/architecture/modules/core-preprocessor-optimizer.md.
     if let Some(keep) = prep.letterbox {
         let job = R1Job::Reframe { keep, subject: subject_into(subject_box, keep) };

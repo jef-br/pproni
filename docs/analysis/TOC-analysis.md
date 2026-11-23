@@ -6,4 +6,4 @@ Reports and measurements, one subfolder per analysis. Images stay local only (`i
 are gitignored: some are product photos and the repo is public).
 
 * [Background statistics (outside the segmask)](background-stats/TOC-analysis-background-stats.md) — 2026-10-30, 49 core
-  images + 13 shoes.
+  images + 13 shoes. Frozen snapshot, not re-run.

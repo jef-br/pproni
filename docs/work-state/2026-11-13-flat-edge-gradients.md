@@ -41,7 +41,7 @@ Built on branch `flat-bg-gradients` from the user's hand-made targets (23 shoe p
 * Step 1 is the safe area: stretched as before. Step 2 is the unsafe area, treated as a 2D gap, not as lines.
 * Sources: the safe overhang, and real background outside the product and its margin. Never from inside the
   margin. No mirroring. Context for matching and healing: every real non-product pixel next to the gap.
-* Tolerance 3 levels is my proposal (p5-p95 of the 5-px-smoothed edge line); the user has not confirmed it.
+* Tolerance 3 levels (p5-p95 of the 5-px-smoothed edge line) was my proposal; the user confirmed it on 2026-11-20.
   Measured: flat cores 0-13, 51 top 11-14, 50 65-100.
 * Resolved 2026-11-18/19: core 22's darker bottom (234 against 241-245) came from the gradients' one global
   colour, not from the BGC fill; fixed by the local colours under "The gradients". Core 51's jagged stretch beside
@@ -71,7 +71,6 @@ Built on branch `flat-bg-gradients` from the user's hand-made targets (23 shoe p
 * Core 17: parked by the user; it looked alright. Core 34 and 35 (overhang 7 and 2 px): alright.
 
 ## Open (2026-11-19)
-* The tolerance of 3 levels for the second test is my proposal; the user has not confirmed it.
 * The solid-background look's threshold (steepest step 0.5) rests on three images (34, 51, the loafers 104388854_det3).
 * The diagram `JBA2B` was synced on 2026-11-19 (one node per struct and enum, each linked to its `.rs` file). Types
   used in another part of Pproni, like `Shot` or `Mask`, link only to their defining file; the long cross-lane lines

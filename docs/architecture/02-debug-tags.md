@@ -13,8 +13,12 @@ off) and the exporter instead names each output from the shot classifier's verdi
 
 Why a marker file: no shell, no environment variable, because Pproni ships as one file with nothing
 to configure. It is the only thing Pproni ever looks for beside the exe; the runtime and the weights
-are inside it. The segmask is upscaled nearest-neighbour to the output's size, so it overlays the
-tagged output pixel-for-pixel.
+are inside it. BiRefNet looks at a square: it squashes the picture it is shown to 512×512. Its mask is
+mapped back to the proportions of that picture (trace stage 15, `<stem>  -  15.jpg`). The segmask file
+is that mask stretched nearest-neighbour to the output's width and height, so it is squashed into the
+output's shape (a square, for the three routes). The output picture is cropped or padded by its route
+and the mask is not, so the two do not line up pixel for pixel: use the segmask to see what the model
+found, and stage 15 to see it in the picture's own proportions.
 
 `EIX` is the 4-bit top-right-bottom-left edge string — always the classifier's real verdict, the
 same one `route::decide` routed on; `BGC`/`FGC` are the dominant background / weighted-median

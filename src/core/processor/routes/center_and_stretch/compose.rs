@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn a_line_with_nothing_to_copy_is_filled_with_bgc_or_white_never_black() {
-        // det3/det4: the product runs to the border, so the left side has no source at all.
+        // 48/49: the product runs to the border, so the left side has no source at all.
         {
             let mut canvas = RgbImage::from_pixel(20, 1, Rgb([200, 20, 20]));
             for x in 0..5 {

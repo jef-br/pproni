@@ -2,15 +2,9 @@
 
 [Up: table of contents](TOC-work-state.md)
 
-* **Lifestyle / ambiance detection** — 2026-09-21-0 (snowboarder on mountains) still outputs
-  white where the gated edges land, because the local-BGC fallback correctly refuses the
-  textured strip. The user's hint was that preprocess's 16 border samples (`optimizer::border_samples`)
-  plus the `prep.crop` fill-ratio can flag the image as lifestyle *before* R1 runs, after which
-  the correct output is a per-edge content-aware stretch outside the segmask rather than white.
-  **The current plan's write-up of these characteristics is likely a misinterpretation of what
-  the user meant.** A dedicated planning conversation is needed — walk through the user's
-  definition of lifestyle/ambiance (what the image looks like, what the segmask + border
-  samples will show, what the desired output is) and agree on the routing *before* any code.
+* **Lifestyle / ambiance detection — CLOSED 2026-11-20 (user).** The case (41, snowboarder on
+  mountains) is covered now: a textured scene with bars goes to `R1Job::Reframe`, and bars are always
+  centred ([2026-10-23 note](2026-10-23-bars-always-centred.md)). No separate detection or planning talk needed.
 * **Not tuned yet:** clearance (20 working px).
 * **Telea / fast-marching inpaint** — kept on standby. `center_and_stretch::inpaint::fill_segment` now
   only fills lines with no background at all (flat BGC/white). If a wider inpainter is needed it
@@ -20,5 +14,5 @@
 * **BGC confidence** — `colors::sample` returns a binary pass/fail. R1 now judges per line whether
   the BGC is "close enough" (inside the nearby background's min/max), so a weak BGC is simply not
   believed there. A dominant-cluster fraction is no longer needed for R1.
-* **Open 2026-11-19:** the second test's tolerance (3 levels) and the solid-background look's threshold (steepest
-  step 0.5) are unconfirmed or rest on three images. Details: [2026-11-13 note](2026-11-13-flat-edge-gradients.md).
+* **Open 2026-11-19:** the solid-background look's threshold (steepest step 0.5) rests on three images. The second
+  test's tolerance (3 levels) was confirmed by the user on 2026-11-20. Details: [2026-11-13 note](2026-11-13-flat-edge-gradients.md).

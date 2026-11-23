@@ -5,6 +5,18 @@
 Measured 2026-10-30 on the 49 core images and the 13 shoes (3872 px). Blobs, colour spread and
 texture of everything outside the BiRefNet mask. Rows are sorted flattest first (by block std p90).
 
+## Frozen snapshot (user, 2026-11-20)
+We measured this once and do not re-run it. The model, the routes and the image set have changed since (GPU build
+merged 2026-11-19; cores 50-51 and the loafers `104388854_det3` are not in it).
+* **Found:** 11 of the 49 core images have a perfectly flat background (block std p90 of 0.20 or less). The busiest are
+  41, 3, 46, 36 (p90 above 10) and 40, whose stats were of the whole picture because its mask was empty.
+  Cores 6 and 40 had an empty mask: 6 still has one, 40 now has a good one (see their notes in the core table).
+* **Status:** the flat-or-textured question is now decided in the code by a rough-block gate, not by these numbers
+  ([flat-edge-gradients note](../../work-state/2026-11-13-flat-edge-gradients.md)).
+* **If the problem returns** we need new images that have: a background these numbers call flat (p90 under 0.5, no
+  blobs) that still comes out streaky or uneven after R1; or a textured background that the gate calls flat. Send the
+  original and its segmask, then run `scripts/bgstats.py` on them (originals are in `JB core img batch`).
+
 * [How the numbers are made](method.md)
 * [Shoes (13)](shoes.md)
 * [Core set (49)](core-set.md)

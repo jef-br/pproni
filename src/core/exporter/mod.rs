@@ -111,9 +111,11 @@ fn write_tagged(img: &RgbImage, dest: &Path, shot: Option<ShotInputs<'_>>) -> Re
     Ok(())
 }
 
-/// Write the working-resolution mask nearest-upscaled to `out_w`×`out_h`, as grey RGB (0 =
-/// background) through the outputs' sRGB JPEG path, so it overlays the tagged output. Nearest keeps
-/// the boundary truthful; JPEG softens it a touch. See docs/architecture/02-debug-tags.md.
+/// Write the working-resolution mask nearest-stretched to `out_w`×`out_h`, as grey RGB (0 =
+/// background) through the outputs' sRGB JPEG path. It is squashed to the output's shape and has
+/// not been through the route's crop or padding, so it does not line up with the output pixel for
+/// pixel; trace stage 15 keeps the picture's own proportions. Nearest keeps the boundary truthful;
+/// JPEG softens it a touch. See docs/architecture/02-debug-tags.md.
 fn save_segmask(mask: &Mask, out_w: u32, out_h: u32, path: &Path) -> Result<(), String> {
     let mut gray = GrayImage::new(mask.width, mask.height);
     for (px, &v) in gray.pixels_mut().zip(mask.data.iter()) {
