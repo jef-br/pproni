@@ -26,6 +26,8 @@ Same BiRefNet_lite weights, same maths. They differ in one thing:
 
 The second is the one the exe embeds. Details: `docs/architecture/modules/core-shot-classifier-birefnet.md`.
 The `examples/` read it by default too.
+If the op19.onnx file ever goes missing, and raising it to the user doesn't solve the problem, it can be remade using the stock export by running `python "tools/5. remove_deformconv.py"` from the repo root.
+It needs no other input and gives very near-same nodes and weights as the file in use.
 
 A missing `MODEL_FILE` fails the **build**, naming the path. That is deliberate:
 the exe ships as one file with the weights inside it, so a model that isn't

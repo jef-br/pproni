@@ -25,4 +25,3 @@ One file per decision or topic. A new decision gets its own dated file, listed a
 
 ## Open
 * [R1 stretch/inpaint follow-ups](open-r1-stretch-follow-ups.md)
-* [Older open items](open-older-items.md)

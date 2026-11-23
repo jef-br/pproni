@@ -10,6 +10,7 @@ in `models/`; nothing reads one from anywhere else.
 | `2. export_onnx.py` | Exports `ZhengPeng7/BiRefNet_lite` from Hugging Face at a fixed square side. Opset 20, so deformable convs stay a single native `DeformConv`. |
 | `3. quantize_int8.py` | Static int8 quantization, calibrated on the garment set. The settings in it are load-bearing and documented in its docstring. |
 | `4. compare_models.py` | A/B any two exports: throughput under Pproni's real concurrency model, plus mask IoU against the first. |
+| `5. remove_deformconv.py` | Turns a stock export into the file the exe embeds: `DeformConv` becomes `GridSample` + `Conv` (so a graphics card can run it), `Gelu` becomes plain maths (opset 19), and a Reshape flag that stops DirectML is dropped. Same weights. Run it right after script 2. |
 
 ## Doc and comment checks
 
@@ -31,6 +32,11 @@ python "tools/4. compare_models.py" models/birefnet_lite_512.onnx models/birefne
 Then point `MODEL_FILE` in `build.rs` at the result - a bare filename, resolved
 inside `models/`. The `.onnx` files are gitignored - they are build inputs, not
 source.
+
+The model the exe embeds today, `birefnet_512_nodeform_op19.onnx`, comes from
+`python "tools/2. export_onnx.py"` then `python "tools/5. remove_deformconv.py"`
+(side 512, the default). The quantize example above is the older CPU-only route; whether
+int8 and the graphics card work together has not been tested.
 
 ## Three things that are easy to get wrong
 

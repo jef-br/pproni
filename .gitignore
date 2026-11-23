@@ -12,8 +12,6 @@ graphify-out/
 # (see docs/architecture/05-single-exe.md). Every .onnx lives in models/ - see models/README.md.
 *.onnx
 *.onnx.data
-onnxruntime.dll
-onnxruntime_providers_shared.dll
 # The DirectML build of ONNX Runtime: the one runtime the exe embeds (graphics card, else CPU).
 onnxruntime-directml.dll
 

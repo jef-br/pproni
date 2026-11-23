@@ -27,6 +27,12 @@ BiRefNet's decoder uses deformable convolutions. A stock export makes them a sin
 nodes rewritten as `GridSample` + `Conv` (same weights, same maths — masks match the original to
 float rounding), so the one embedded model runs on a graphics card or on the CPU.
 
+`tools/5. remove_deformconv.py` makes that file from the stock export. It also splits `Gelu` into
+plain maths (the only opset-20 operator in the graph, so the file declares opset 19) and drops
+`allowzero=1` from 221 Reshape nodes. That last flag is easy to miss: with it, DirectML does not
+start the model, `BiRefNetModel::build` falls back to the CPU without saying so, and a 10-image run
+takes 86 s instead of 5 s with identical masks.
+
 ## Session memory and the optimization level
 The session uses one intra-op thread because `app::batch` fans images across cores with rayon.
 Peak memory tracks that fan-out — roughly 400MB of activations per concurrent worker — and not the
