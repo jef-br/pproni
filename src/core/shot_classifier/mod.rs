@@ -5,7 +5,6 @@
 //! docs/architecture/modules/core-shot-classifier.md.
 
 pub mod birefnet;
-pub(crate) mod cipher;
 pub mod gate;
 pub mod geometry;
 mod gpu_adapters;

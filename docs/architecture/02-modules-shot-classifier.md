@@ -19,7 +19,6 @@ always built into the exe (no feature flag).
 | `route` | `Shot`, `Route`, `R1Job`, `Decision`, `decide`, `send`, `plan_square` | the classifier's last step: picks R1/R2/R3 and its plan, then runs exactly that route |
 | `birefnet` | `BiRefNetConfig`, `BiRefNetModel` | ONNX inference, always built in |
 | `gpu_adapters` (private) | `Adapter`, `ranked` | the machine's graphics cards, most dedicated video memory first, software adapter left out; `birefnet` picks its device from this list |
-| `cipher` | ChaCha20 keystream | shared by `build.rs` (encrypt) and `birefnet::load` (decrypt) for the embedded model |
 
 `EdgeView` is the load-bearing idea: every per-edge algorithm is written once in "top edge, depth
 increasing downward" terms against the `Grid` trait, and the other three edges are presented by

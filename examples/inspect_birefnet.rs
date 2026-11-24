@@ -8,7 +8,7 @@
 
 use ort::session::Session;
 
-/// The file `build.rs` embeds as `MODEL_FILE`. Keep the two in step.
+/// The file `shot_classifier/birefnet.rs` embeds (`config::birefnet_model_path!`). Keep the two in step.
 const DEFAULT_MODEL: &str = "models/birefnet_512_nodeform_op19.onnx";
 
 fn main() -> ort::Result<()> {

@@ -32,7 +32,7 @@ import torch
 from transformers import AutoModelForImageSegmentation
 
 MODEL_ID = "ZhengPeng7/BiRefNet_lite"
-# One folder holds every export; build.rs reads MODEL_FILE out of it.
+# One folder holds every export; the exe embeds the one file named in core/config.rs (`birefnet_model_path`).
 MODEL_DIR = "models"
 
 

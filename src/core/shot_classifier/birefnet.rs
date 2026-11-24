@@ -16,13 +16,13 @@ use ort::session::Session;
 use ort::value::Tensor;
 use std::sync::Mutex;
 
-/// The BiRefNet weights, encrypted and compiled in by `build.rs` from `models/` (`MODEL_FILE`).
-/// Obfuscation, not secrecy: [`MODEL_KEY`]/[`MODEL_NONCE`] ship in the binary too.
+/// The BiRefNet weights, compiled in from `models/`. A missing file breaks the build.
 /// See docs/architecture/05-single-exe.md.
-static ENC_MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/model.onnx.enc"));
-
-// MODEL_KEY / MODEL_NONCE, generated fresh for this build by build.rs (never committed).
-include!(concat!(env!("OUT_DIR"), "/model_key.rs"));
+/// JB: DeformConv rewritten as GridSample + Conv so DirectML can run it. (native DeformConv is CUDA or CPU only)
+static MODEL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    crate::core::config::birefnet_model_path!()
+));
 
 const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const IMAGENET_STD: [f32; 3] = [0.229, 0.224, 0.225];
@@ -65,11 +65,10 @@ impl BiRefNetModel {
             .map_err(|e| e.to_string())
     }
 
-    /// Loads the embedded [`ENC_MODEL`]; call [`Self::init_runtime`] first. `Err`: no session could
+    /// Loads the embedded [`MODEL`]; call [`Self::init_runtime`] first. `Err`: no session could
     /// be built from the graph, fatal for the run (see `core::preflight`).
     pub fn load(config: BiRefNetConfig) -> Result<Self, String> {
-        let model = super::cipher::decrypt(ENC_MODEL, &MODEL_KEY, &MODEL_NONCE);
-        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_memory(&model))
+        Self::build(config, trace::stage::PRIMARY, |b| b.commit_from_memory(MODEL))
     }
 
     /// Loads a model from disk instead, for the `examples/` dev harness (other exports, same session

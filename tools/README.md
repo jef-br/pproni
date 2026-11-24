@@ -29,8 +29,8 @@ python "tools/3. quantize_int8.py" models/birefnet_lite_384.onnx
 python "tools/4. compare_models.py" models/birefnet_lite_512.onnx models/birefnet_lite_384_int8.onnx
 ```
 
-Then point `MODEL_FILE` in `build.rs` at the result - a bare filename, resolved
-inside `models/`. The `.onnx` files are gitignored - they are build inputs, not
+Then point `birefnet_model_path` in `src/core/config.rs` at the result (a file
+inside `models/`). The `.onnx` files are gitignored - they are build inputs, not
 source.
 
 The model the exe embeds today, `birefnet_512_nodeform_op19.onnx`, comes from

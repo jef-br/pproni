@@ -3,7 +3,7 @@
 [Up: module pages](TOC-module-architecture.md)
 
 Detail moved out of the `src/core/shot_classifier/birefnet.rs` comments. The module table is
-[2. Modules: `core::shot_classifier`](../02-modules-shot-classifier.md); the embedded, encrypted
+[2. Modules: `core::shot_classifier`](../02-modules-shot-classifier.md); the embedded
 model and the unpacked runtime are [5. Single hardened exe](../05-single-exe.md).
 
 ## What the model is

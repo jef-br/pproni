@@ -4,7 +4,8 @@ Invariants that must never break. The correctness reviewer checks every one of
 these against each part's diff; a violation is a blocker, not a note.
 
 1. **Single hardened exe.** `cargo build --release` produces one exe and nothing
-   else. The two `.onnx` models (encrypted for now, see ticket #27) and one runtime,
+   else. "Hardened" means the release build settings (fat LTO, stripped, no PDB, abort on
+   panic). The two `.onnx` models and one runtime,
    `onnxruntime-directml.dll`, are embedded, never shipped as a file beside the exe.
    The exe must not rely on an ONNX Runtime installed on the PC. The only Windows part
    it uses is `DirectML.dll` (Windows 10 1903+), and without it the model runs on the

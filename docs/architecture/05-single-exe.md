@@ -5,33 +5,25 @@
 **Pproni ships as one hardened executable with no installation step. This is a hard requirement.**
 It runs on Windows only; Linux is never an option.
 
-Hardening is already in place in `Cargo.toml`'s release profile — fat LTO, one codegen unit,
-symbols and debuginfo stripped, no PDB, abort on panic — and is anti-RE as much as size. The
-embedded models are also **encrypted at rest** (see below), so they no longer carve out of the exe
-with `binwalk`/`strings`. This is obfuscation, not secrecy: the key ships in the binary, so it
-raises the effort bar without pretending a determined analyst can't recover the weights. Both
-models are off-the-shelf now, so removing the encryption is planned: ticket #27.
+"Hardened" means the release build settings in `Cargo.toml`'s `[profile.release]`: fat LTO, one
+codegen unit, symbols and debuginfo stripped, no PDB, abort on panic. They make the exe smaller and
+harder to reverse-engineer. Both embedded models are off-the-shelf (BiRefNet with its `DeformConv`
+ops rewritten, and YuNet from the OpenCV Zoo); their licences allow shipping them inside the exe
+(confirmed by the owner, 2026-11-24).
 
 **Met.** `cargo build --release` produces one exe file (~211MB) and nothing else. Three things are
 compiled in:
 
-- **The segmentation model.** `shot_classifier::birefnet` embeds one BiRefNet export and loads it
-  through `Session::commit_from_memory`. It is stored **encrypted**: `build.rs` reads the plaintext
-  out of `models/` — `MODEL_DIR` plus `MODEL_FILE` there are the only things that pick which export
-  ships — encrypts it under a per-build key (a ChaCha20 keystream in `shot_classifier::cipher`,
-  shared with the build script by path), and `include_bytes!`'s the encrypted blob from `OUT_DIR`;
-  `birefnet::load` decrypts into a heap buffer only for as long as ORT needs to copy the graph in.
-  The plaintext model is never a static string in the image and never touches disk. The shipped file
-  is `birefnet_512_nodeform_op19.onnx` (~188MB); how it differs from the stock export:
-  [models/README.md](../../models/README.md).
+- **The segmentation model.** `shot_classifier::birefnet` embeds one BiRefNet export with
+  `include_bytes!` (its path is `config::birefnet_model_path!()`) and loads it straight from those
+  bytes through `Session::commit_from_memory`. Nothing is written to disk. The shipped file is `birefnet_512_nodeform_op19.onnx` (~188MB); how it differs from the
+  stock export: [models/README.md](../../models/README.md).
 - **The philtrum model.** `preprocessor::maria_antonieta` embeds a second ONNX export (YuNet,
-  OpenCV Zoo, BSD-3-Clause) the same way, via `build.rs`'s `encrypt_slot` helper. One slot per
-  model: `PHILTRUM_MODEL_FILE` picks the plaintext in `models/`, `philtrum.onnx.enc` and
-  `philtrum_key.rs` emit beside the BiRefNet ones. Used by `cut_above_philtrum` for the headcut feature;
-  built once at startup by `core::preflight` so a corrupt or missing export aborts the batch
-  loudly.
+  OpenCV Zoo, BSD-3-Clause) the same way: its path is `config::yunet_model_path!()`. Used
+  by `cut_above_philtrum` for the headcut feature; built once at startup by `core::preflight` so a
+  corrupt export aborts the batch loudly.
 - **The ONNX Runtime.** `core::runtime` embeds `onnxruntime-directml.dll` (~20MB, ORT 1.24, the
-  DirectML build) the same way, not encrypted. It is the only runtime Pproni carries, and it serves
+  DirectML build) the same way. It is the only runtime Pproni carries, and it serves
   both routes: the graphics card (DirectML) and the CPU. `ort`'s `load-dynamic` needs a real path to
   `LoadLibrary`, so at first use the bytes are written once to
   `<base>/pproni-<tag>/pproni.dll` and that path is handed to `ort::init_from`. `<base>` is the first
@@ -48,8 +40,8 @@ runs on the CPU (`BiRefNetModel::build`). Decided 2026-11-23; it saved 17.7MB.
 
 Both source files are gitignored — the models in `models/`, `onnxruntime-directml.dll` at the repo
 root — and a missing one is a *build* failure naming the file, not a runtime surprise. `models/` is
-the single place any `.onnx` lives; it holds every variant being tried, and only `MODEL_FILE`
-decides which one is baked in. The only files Pproni still touches beside the exe are optional
+the single place any `.onnx` lives; it holds every variant being tried, and only the paths in
+`core::config` (`birefnet_model_path!`, `yunet_model_path!`) are baked in. A new model gets its path there too. The only files Pproni still touches beside the exe are optional
 markers (`PPRONI_DEBUG_TAGS`). `ORT_DYLIB_PATH` can point at a hand-placed runtime instead of the
 embedded one (a dev override, honoured by `core::runtime` for the exe and the `examples/` alike).
 

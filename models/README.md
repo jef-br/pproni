@@ -4,16 +4,18 @@ Every BiRefNet `.onnx` export lives here and nowhere else. The files themselves
 are gitignored (`*.onnx`) — they are build inputs, not source — so this README is
 the only committed file, and it is what makes the folder exist in a fresh clone.
 
-`build.rs` reads exactly one BiRefNet file from here:
+`src/core/shot_classifier/birefnet.rs` embeds exactly one BiRefNet file from here. Its path is
+set in `src/core/config.rs`:
 
 ```rust
-const MODEL_DIR:  &str = "models";
-const MODEL_FILE: &str = "birefnet_512_nodeform_op19.onnx";
+macro_rules! birefnet_model_path {
+    () => { "/models/birefnet_512_nodeform_op19.onnx" };
+}
 ```
 
-`MODEL_FILE` is a bare filename resolved inside this folder. It is the single
-switch that decides which export gets encrypted and compiled into the exe — so
-dropping a new variant in here changes nothing until that line names it.
+That path is the single switch that decides which export is compiled into the exe — so dropping a
+new variant in here changes nothing until that line names it. (The headcut model,
+`face_detection_yunet_2026may.onnx`, is set the same way: `yunet_model_path!`.)
 
 ## The two 512 files
 
@@ -29,7 +31,7 @@ The `examples/` read it by default too.
 If the op19.onnx file ever goes missing, and raising it to the user doesn't solve the problem, it can be remade using the stock export by running `python "tools/5. remove_deformconv.py"` from the repo root.
 It needs no other input and gives very near-same nodes and weights as the file in use.
 
-A missing `MODEL_FILE` fails the **build**, naming the path. That is deliberate:
+A missing model file fails the **build**, naming the path. That is deliberate:
 the exe ships as one file with the weights inside it, so a model that isn't
 there must be caught at build time, never at run time.
 

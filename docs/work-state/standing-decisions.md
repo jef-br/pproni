@@ -3,11 +3,10 @@
 [Up: table of contents](TOC-work-state.md)
 
 * The 512 model without `DeformConv` (`birefnet_512_nodeform_op19.onnx`) is canonical — proven to
-  work on a graphics card and the CPU, and what `build.rs` bakes in (`MODEL_FILE`). The stock export
+  work on a graphics card and the CPU, and what `birefnet.rs` embeds (`config::birefnet_model_path!()`). The stock export
   `birefnet_lite_512.onnx` has the same weights but runs on CPU/CUDA only.
 * The exe embeds one runtime, `onnxruntime-directml.dll`, and not `DirectML.dll` (decided
-  2026-11-23: Windows 10 1903+ has it). Windows only, never Linux. Dropping the model encryption is
-  ticket #27.
+  2026-11-23: Windows 10 1903+ has it). Windows only, never Linux.
 * The preprocessor ends with one function, `preprocessor::optimizer::optimize`: colour balance, then the trim the user spec'd. Its output is the only image BiRefNet sees.
 * How both steps work, the backdrop-only `Err` and the mask paste-back: [architecture: why two resolutions](../architecture/01-why-two-resolutions.md).
 * `working` and `original` stay true colour. BGC/FGC are sampled from `working`.

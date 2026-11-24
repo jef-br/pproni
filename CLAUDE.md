@@ -4,9 +4,9 @@ Project notes for any Claude session working in this repo.
 All docs start at `docs/TOC-PProni.md` (an Obsidian vault; every folder has its own table of contents).
 
 ## Ships as one hardened exe, no install
-A hard requirement, met — not optional, and never solved by putting a file beside the exe.
+"Hardened" = the release build settings (fat LTO, stripped, no PDB, abort on panic). A hard requirement, met — not optional, and never solved by putting a file beside the exe.
 `cargo build --release` produces the single main exe and nothing else: the two `.onnx` models (in
-`models/`, embedded encrypted; removing that encryption is ticket #27) and one runtime,
+`models/`, embedded as they are) and one runtime,
 `onnxruntime-directml.dll` (the DirectML build of ONNX Runtime; unpacked at startup to a per-user
 `pproni-*` cache file) are compiled in, and a missing one breaks the *build*, not the run. The exe
 never relies on an ONNX Runtime installed on the PC. The one Windows part it uses is `DirectML.dll`

@@ -10,7 +10,7 @@
   only fills lines with no background at all (flat BGC/white). If a wider inpainter is needed it
   slots in there.
 * **ONNX LaMa-style inpaint kicker** — for truly textured scenes (lifestyle), the long-term
-  option is embedded like BiRefNet (`shot_classifier::birefnet` + `cipher` + `build.rs`).
+  option is embedded like BiRefNet (`include_bytes!`, as in `shot_classifier::birefnet`).
 * **BGC confidence** — `colors::sample` returns a binary pass/fail. R1 now judges per line whether
   the BGC is "close enough" (inside the nearby background's min/max), so a weak BGC is simply not
   believed there. A dominant-cluster fraction is no longer needed for R1.

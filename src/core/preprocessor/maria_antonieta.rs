@@ -8,18 +8,17 @@
 //! docs/work-state/2026-10-28-headcuts.md. Embedding: see docs/architecture/05-single-exe.md.
 //! YuNet's input and outputs: see docs/architecture/modules/core-preprocessor-maria-antonieta.md.
 
-use crate::core::shot_classifier::cipher;
 use image::{imageops, RgbImage};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 use std::sync::OnceLock;
 
-/// The philtrum weights, encrypted at rest, compiled in.
-static ENC_MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/philtrum.onnx.enc"));
-
-// PHILTRUM_KEY / PHILTRUM_NONCE, emitted fresh per build by build.rs.
-include!(concat!(env!("OUT_DIR"), "/philtrum_key.rs"));
+/// The philtrum weights (YuNet), compiled in from `models/`. A missing file breaks the build.
+static MODEL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    crate::core::config::yunet_model_path!()
+));
 
 /// Side of the fixed input square the model runs on, px. Why fixed, and why 320: see
 /// docs/architecture/modules/core-preprocessor-maria-antonieta.md.
@@ -41,7 +40,7 @@ const KP_NOSE: usize = 2;
 const KP_MOUTH_RIGHT: usize = 3;
 const KP_MOUTH_LEFT: usize = 4;
 
-/// Shared philtrum-detection session: the decrypted YuNet model wrapped in an ORT `Session`, plus
+/// Shared philtrum-detection session: the embedded YuNet model wrapped in an ORT `Session`, plus
 /// the input name read from the model at load time. All other sizes are fixed by `INPUT_SIZE` and
 /// `STRIDES`.
 pub struct PhiltrumSession {
@@ -55,14 +54,13 @@ pub struct PhiltrumSession {
 fn session() -> Result<&'static PhiltrumSession, String> {
     static S: OnceLock<Result<PhiltrumSession, String>> = OnceLock::new();
     S.get_or_init(|| {
-        let model = cipher::decrypt(ENC_MODEL, &PHILTRUM_KEY, &PHILTRUM_NONCE);
         let session = Session::builder()
             .map_err(|e| format!("philtrum session builder: {e}"))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| format!("philtrum optimisation level: {e}"))?
             .with_intra_threads(1)
             .map_err(|e| format!("philtrum intra threads: {e}"))?
-            .commit_from_memory(&model)
+            .commit_from_memory(MODEL)
             .map_err(|e| format!("philtrum commit from memory: {e}"))?;
 
         let input_name = session

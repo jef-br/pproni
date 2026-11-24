@@ -12,5 +12,4 @@
 - Output 1:1 [800,2000], JPEG q90–95 4:4:4 sRGB. The envelope is enforced in the exporter — which
   every route ends at — so no route can bypass it.
 - Ships as one hardened exe with no install. **Met** — the ONNX Runtime (DirectML build) and the
-  models are all embedded in the exe (the models encrypted for now, ticket #27), unpacked/decrypted
-  at runtime, never shipped as files beside it. See [architecture §5](../architecture/05-single-exe.md).
+  models are all embedded in the exe, the runtime unpacked at startup, never shipped as files beside it. See [architecture §5](../architecture/05-single-exe.md).

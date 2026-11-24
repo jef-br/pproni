@@ -6,6 +6,28 @@ pub const JPEG_QUALITY: u8 = 95;
 /// Gates the headcut question: false runs Pproni without headcuts. Set true while developing.
 pub const PERMIT_HEADCUTS:bool = false;
 
+// ---- Embedded models --------------------------------------------------------------------------
+// Where each ONNX model sits, relative to the repo root. A new model gets its path here too.
+// These are macros, not `const`s: `include_bytes!` only takes a string literal, and a `const` is
+// not one. Use: `include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), model_path!()))`.
+// See docs/architecture/05-single-exe.md.
+
+/// The BiRefNet model (`shot_classifier::birefnet`).
+macro_rules! birefnet_model_path {
+    () => {
+        "/models/birefnet_512_nodeform_op19.onnx"
+    };
+}
+pub(crate) use birefnet_model_path;
+
+/// The YuNet face model (`preprocessor::maria_antonieta`, headcuts).
+macro_rules! yunet_model_path {
+    () => {
+        "/models/face_detection_yunet_2026may.onnx"
+    };
+}
+pub(crate) use yunet_model_path;
+
 // ---- Shot classification ----------------------------------------------------------------------
 // `GATE_MARGIN_PX` and `REFINE_NARROW_BAND_PX` are in working-resolution pixels, so they are coupled
 // to `WORKING_SIZE` — change one and the others shift meaning.

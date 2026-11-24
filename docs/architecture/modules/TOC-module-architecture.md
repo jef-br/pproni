@@ -8,7 +8,7 @@ Detail moved out of source comments that had no other home in the docs
 | Page | Source |
 |---|---|
 | [app.md](app.md) | `src/app/` (progress footer, one write per frame) |
-| [build.md](build.md) | `build.rs` (icon, fixed encrypted names, symmetric cipher) |
+| [build.md](build.md) | `build.rs` (the app icon) |
 | [core.md](core.md) | `src/core/mod.rs`, `options.rs` (how `Options` travels) |
 | [core-config.md](core-config.md) | `src/core/config.rs` (where each group of constants is explained) |
 | [core-exporter.md](core-exporter.md) | `src/core/exporter/` (save then move, resize) |
@@ -19,7 +19,7 @@ Detail moved out of source comments that had no other home in the docs
 | [core-processor-routes.md](core-processor-routes.md) | `processor/mod.rs`, `routes/mod.rs`, R2 `crop_square`, R3 `fallback` |
 | [core-processor-routes-center-and-stretch.md](core-processor-routes-center-and-stretch.md) | R1: silhouette, the stretch, the flat gate, grazed lines (second test, patch fill), edge gradients, the solid-background look, seam-carve reframe |
 | [core-runtime.md](core-runtime.md) | `src/core/runtime.rs` (why `DirectML.dll` is not embedded) |
-| [core-shot-classifier.md](core-shot-classifier.md) | `src/core/shot_classifier/` wiring, `gate`, `cipher`, `gpu_adapters` |
+| [core-shot-classifier.md](core-shot-classifier.md) | `src/core/shot_classifier/` wiring, `gate`, `gpu_adapters` |
 | [core-shot-classifier-birefnet.md](core-shot-classifier-birefnet.md) | tensors, `DeformConv` rewrite, session memory, `logit`, loading |
 | [core-shot-classifier-geometry.md](core-shot-classifier-geometry.md) | who goes through `EdgeView`, `Grid` implementors |
 | [core-shot-classifier-plan.md](core-shot-classifier-plan.md) | R1's square: one rule for every edge count, when it is `None` |
