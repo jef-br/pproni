@@ -29,12 +29,11 @@ cropped. Top+bottom bled means the square is as tall as the frame and the width 
 into — which R1 does well (4, 35, 36). A *third* bled edge hands the image back to R1, because the
 one remaining free edge is somewhere to put the slack (29).
 
-## 5.1 One rule, not six behaviours `REVISED 2026-09-09`
+## 5.1 One rule, not six behaviours
 
-The five bleed behaviours this table used to list separately are one rule with different edges
-pinned. **An edge the subject bleeds off is blocked**: the square may not move it, because the
-subject continues past it and background invented there would be painted over a subject we cannot
-see. Everything else follows, per axis:
+There is one rule that governs future behavior.  **An edge the subject bleeds off is blocked.**
+The square may not move it, because the subject continues past it and background invented there would be a hallucination.
+Everything else follows, per axis:
 
 - **Size.** Each free side of an axis takes half the margin (4.2% of the extent): two free sides need
   `extent × (1 + margin)`, one free side `extent × (1 + margin / 2)`. An axis blocked at
