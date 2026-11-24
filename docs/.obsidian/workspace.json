@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "agent-knowledge/hard-bounds.md",
+                "file": "work-state/TOC-work-state.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "hard-bounds"
+              "title": "TOC-work-state"
             }
           }
         ]
@@ -190,6 +190,8 @@
   },
   "active": "dde8eff79de844e6",
   "lastOpenFiles": [
+    "TOC-PProni.md",
+    "agent-knowledge/hard-bounds.md",
     "agent-knowledge/core-image-roles.md.tmp.20728.20d86ec58ad4",
     "agent-knowledge/core-image-roles.md",
     "agent-knowledge/hard-bounds.md.tmp.20728.aa693472e3f0",
@@ -199,7 +201,6 @@
     "agent-knowledge/acceptance-checks.md",
     "specs/06-crop-compose-r2.md",
     "specs/01-principles.md",
-    "agent-knowledge/hard-bounds.md",
     "architecture/modules/TOC-module-architecture.md",
     "specs/TOC-specs.md",
     "work-state/rejected.md",
@@ -207,7 +208,6 @@
     "work-state/standing-decisions.md",
     "work-state/TOC-work-state.md",
     "work-state/parked-first-trim.md",
-    "TOC-PProni.md",
     "architecture/TOC-architecture.md",
     "architecture/06-diagram.md",
     "architecture/04-known-gaps.md",
@@ -228,7 +228,6 @@
     "architecture/modules/main.md.tmp.28760.927bbb0d6152",
     "architecture/modules/core.md.tmp.28760.2704582aea93",
     "architecture/modules/core-runtime.md.tmp.28760.8b726562ed1e",
-    "architecture/modules/core-processor-routes-center-and-stretch.md.tmp.28760.39ff74e2b325",
     "analysis/background-stats/images/sheet2.jpg",
     "analysis/background-stats/images/sheet1.jpg",
     "analysis/background-stats/images/shoes_in/104051800_det3.jpg",
