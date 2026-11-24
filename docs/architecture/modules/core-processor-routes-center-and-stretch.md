@@ -45,9 +45,9 @@ one line, which shows as a step in the stretch.
 
 ### No saliency in R1
 
-The subject is the mask's own bounding box. The saliency-weighted centre of gravity is
-`crop_square`'s, where a full bleed leaves no background to anchor against:
-[spec §6](../../specs/06-crop-compose-r2.md).
+The subject is the mask's own bounding box. A saliency-weighted centre of gravity is a planned
+refinement of `crop_square`, where a full bleed leaves no background to anchor against:
+[R2 in core-processor-routes](core-processor-routes.md).
 
 ### The background is not validated
 

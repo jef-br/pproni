@@ -10,7 +10,7 @@ Three routes, keyed on the edge-intersection (EIX) verdict:
 | **R2** · CropSquare | no usable mask, or no room to grow | largest square already in the frame, centred |
 | **R3** · Fallback | EIX not set — no verdict | whole image, uncropped, centred on a square canvas |
 
-**KO images never reach routing.** A source deemed unprocessable — **KO** ([§9](09-open-questions.md) Q7: the trimmed image,
+**KO images never reach routing.** A source deemed unprocessable — **KO** ([§7](07-open-questions.md) Q7: the trimmed image,
 or its segmask, has a largest side below `800 / 1.42 ≈ 563 px`) — is a *failure*, not a route. It is
 left untouched in the INPUT folder, exactly like the backdrop-only case. Route selection only ever
 sees processable images.

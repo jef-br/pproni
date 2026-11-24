@@ -44,8 +44,8 @@ Why each of its three verdicts (decided in `shot_classifier::route::decide`) lan
 mask is not to be trusted, and the third has a subject spanning the whole width, so the frame is the
 more reliable anchor in all three.
 
-**Room left for CoG/MSR.** [Spec §6](../../specs/06-crop-compose-r2.md)'s CoG/MSR square is the
-refinement this leaves room for: anchor the crop on the saliency-weighted centre rather than the
+**Room left for CoG/MSR.** A CoG/MSR square is the planned refinement this leaves room for (see
+[build status](../../specs/08-build-status.md)): anchor the crop on the saliency-weighted centre rather than the
 frame's middle. Nothing in the 37-image set needs it yet.
 
 ## fallback.rs (R3)
