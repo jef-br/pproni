@@ -11,5 +11,5 @@
 - Three routes, one bleed rule: pin the bled edges, margin the free ones. Rows 0-3 of the old edge table are that rule seen from four angles and all live in R1; only the full bleed is left to R2.
 - Output 1:1 [800,2000], JPEG q90–95 4:4:4 sRGB. The envelope is enforced in the exporter — which
   every route ends at — so no route can bypass it.
-- Ships as one hardened exe with no install. **Met** — the ONNX Runtime (DirectML build) and the
+- Ships as one hardened exe with no install. **Built** — the ONNX Runtime (DirectML build) and the
   models are all embedded in the exe, the runtime unpacked at startup, never shipped as files beside it. See [architecture §5](../architecture/05-single-exe.md).
