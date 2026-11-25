@@ -8,7 +8,7 @@ Three routes, keyed on the edge-intersection (EIX) verdict:
 |---|---|---|
 | **R1** · Center & Stretch | the subject must be repositioned | move and grow the canvas so the subject's box is centred; edges the subject runs off stay where they are; new canvas is filled from the background |
 | **R2** · CropSquare | no usable mask, or no room to grow | largest square already in the frame, centred |
-| **R3** · Fallback | the subject runs off two opposite edges and is too wide (or too tall) for a square; today also a model error (bug #29) | the whole image, uncropped, centred on a square canvas; white bands fill the rest |
+| **R3** · Fallback | the subject runs off two opposite edges and is too wide (or too tall) for a square; today also a model error, dropped without a word (ticket #31) | the whole image, uncropped, centred on a square canvas; white bands fill the rest |
 
 **KO images will never reach routing** `PLANNED`, not yet built. A source that is too small — **KO**,
 see [§7](07-open-questions.md) Q7 — will be a *failure*, not a route: left untouched in the INPUT
@@ -78,5 +78,6 @@ subject bleeding off the top and bottom of a shallow frame. Neither vertical sid
 slack has nowhere legal to go, so R1 declines and the image falls to R3.
 
 R3 has no row here. It takes the images whose square does not fit (the impossible case above) and
-frames them safely instead of guessing. Today it also takes an image whose model run fails, which is
-bug #29, not a Pproni outcome.
+frames them safely instead of guessing. Today it also takes an image whose model run fails. That is
+an error, not a Pproni outcome, and `core::classify` drops it without a word. How to report it is
+ticket #31.

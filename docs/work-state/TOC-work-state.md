@@ -3,15 +3,16 @@
 [Up: docs home](../TOC-PProni.md)
 
 Read this first. Keep it short. Update it at the end of each work session.
-Last updated: 2026-11-19.
+Last updated: 2026-11-25.
 
 One file per decision or topic. A new decision gets its own dated file, listed at the top of
 "Decided".
 
 ## Decided (newest first)
+* [2026-11-25: DirectML runs with metacommands off (the GPU verdict loss, ticket #29)](2026-11-25-gpu-metacommands-off.md)
 * [2026-11-13 to 19: flat background on R1: the flat gate, grazed edges (second test, patch fill), local gradient colours, the solid-background look](2026-11-13-flat-edge-gradients.md) — merged into `main` as 2.4.0; holds its open items
 * [2026-10-30: a headcut on a bars image leaves the bars out](2026-10-30-headcut-on-bars-image.md)
-* [2026-10-29: routing lives in the shot classifier](2026-10-29-routing-in-shot-classifier.md) — also holds four open items (diagram, "stuck" headcuts, 104051 shoes, GPU verdict loss)
+* [2026-10-29: routing lives in the shot classifier](2026-10-29-routing-in-shot-classifier.md) — also holds four items (diagram, "stuck" headcuts, 104051 shoes, GPU verdict loss); the GPU verdict loss was solved on 2026-11-25
 * [2026-10-28: headcuts](2026-10-28-headcuts.md)
 * [2026-10-23: bars are always centred](2026-10-23-bars-always-centred.md)
 * [2026-10-23: one stretch function for all four edges](2026-10-23-one-stretch-function.md)

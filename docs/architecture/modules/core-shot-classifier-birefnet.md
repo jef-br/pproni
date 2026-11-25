@@ -33,6 +33,19 @@ plain maths (the only opset-20 operator in the graph, so the file declares opset
 start the model, `BiRefNetModel::build` falls back to the CPU without saying so, and a 10-image run
 takes 86 s instead of 5 s with identical masks.
 
+## The graphics-card session
+On a graphics card the session gets two DirectML settings on top of the shared ones:
+* **Graph fusion off** (`ep.dml.disable_graph_fusion`). With it on, the NVIDIA card hung ("device removed")
+  on this model's first run. With it off, NVIDIA and Intel both run the model correctly, NVIDIA at full speed.
+* **Metacommands off** (`disable_metacommands`). Metacommands are fast kernels that the graphics driver
+  supplies itself. On the NVIDIA card they faulted the GPU in about 1 batch run in 3, and most images then
+  lost their verdict. With them off, DirectML uses its own kernels: same speed on NVIDIA, slightly slower on
+  Intel. Cause, tests and numbers: [2026-11-25: DirectML runs with metacommands off](../../work-state/2026-11-25-gpu-metacommands-off.md).
+
+`ort` (rc.9) only lets you set a device id for DirectML, so `append_directml` adds the provider through
+ONNX Runtime's generic call (`SessionOptionsAppendExecutionProvider` with `"DML"`). If that call fails, the
+card is rejected and `build` tries the next one. Nothing is run to prove a card works.
+
 ## Session memory and the optimization level
 The session uses one intra-op thread because `app::batch` fans images across cores with rayon.
 Peak memory tracks that fan-out — roughly 400MB of activations per concurrent worker — and not the

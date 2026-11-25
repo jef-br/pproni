@@ -31,5 +31,6 @@
   frame. At 3872 px (1226, 1339, 1286 px) the same photos pass and get the 4.2% crop. Same four-shoe check: 800,
   809, 814, 815 are 808, 746, 902, 883 px at 2000 and did get R1 (their output sizes match 1.084 x longest side).
   The rule measures absolute original pixels, so it depends on the input resolution. Not a code bug; kept on purpose.
-* Open: the GPU run sometimes loses most verdicts silently (`EIX=____`, route R3, about 36 s instead of 14 s):
-  2 of 4 identical runs on 2026-10-29. Not looked into; the model error is swallowed in `core::classify`.
+* Solved 2026-11-25: the GPU run sometimes lost most verdicts silently (`EIX=____`, route R3, about 36 s instead
+  of 14 s): 2 of 4 identical runs on 2026-10-29. The cause was DirectML's metacommands faulting the NVIDIA card:
+  [2026-11-25: DirectML runs with metacommands off](2026-11-25-gpu-metacommands-off.md).

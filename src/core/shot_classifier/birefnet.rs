@@ -10,7 +10,6 @@ use super::gpu_adapters;
 use super::segmentation::{Instance, Mask, SegmentationModel};
 use crate::core::trace;
 use image::{imageops::FilterType, RgbImage};
-use ort::execution_providers::DirectMLExecutionProvider;
 use ort::session::builder::SessionBuilder;
 use ort::session::Session;
 use ort::value::Tensor;
@@ -129,16 +128,10 @@ impl BiRefNetModel {
             .with_memory_pattern(false)?
             .with_intra_threads(1)?;
         if let Some(id) = device_id {
-            builder = builder
-                // Graph fusion off: with it on, the NVIDIA card hung ("device removed") on this
-                // model's first run. Off, NVIDIA and Intel both run it correctly, NVIDIA at full speed.
-                .with_config_entry("ep.dml.disable_graph_fusion", "1")?
-                // `error_on_failure`: a card that cannot be set up must be an `Err` here so the
-                // next candidate is tried, not a silent drop to the CPU inside the session.
-                .with_execution_providers([DirectMLExecutionProvider::default()
-                    .with_device_id(id)
-                    .build()
-                    .error_on_failure()])?;
+            // Graph fusion and metacommands off: each one made the NVIDIA card fault.
+            // See docs/architecture/modules/core-shot-classifier-birefnet.md.
+            builder = builder.with_config_entry("ep.dml.disable_graph_fusion", "1")?;
+            append_directml(&mut builder, id)?;
         }
         commit(builder)
     }
@@ -153,6 +146,41 @@ impl BiRefNetModel {
     fn input_size(&self) -> Result<(u32, u32), String> {
         input_dims(&self.session)
     }
+}
+
+/// Adds DirectML on card `device_id` with metacommands off, through ONNX Runtime's generic call:
+/// `ort`'s own `DirectMLExecutionProvider` takes only a device id. `Err`: the card could not be set
+/// up, so `build` tries the next one. See docs/architecture/modules/core-shot-classifier-birefnet.md.
+fn append_directml(builder: &mut SessionBuilder, device_id: i32) -> ort::Result<()> {
+    use ort::AsPointer;
+    use std::ffi::{CStr, CString};
+
+    let id = CString::new(device_id.to_string()).expect("digits hold no NUL");
+    let keys = [c"device_id".as_ptr(), c"disable_metacommands".as_ptr()];
+    let values = [id.as_ptr(), c"true".as_ptr()];
+    let api = ort::api();
+    // SAFETY: every pointer is a live NUL-terminated string or the builder's own options, and
+    // `keys`/`values` hold `keys.len()` entries each; ONNX Runtime copies them before returning.
+    let status = unsafe {
+        (api.SessionOptionsAppendExecutionProvider.expect("ORT API entry"))(
+            builder.ptr_mut(),
+            c"DML".as_ptr(),
+            keys.as_ptr(),
+            values.as_ptr(),
+            keys.len(),
+        )
+    };
+    if status.is_null() {
+        return Ok(());
+    }
+    // SAFETY: `status` is non-null and owned here; its message is copied out before it is released.
+    let msg = unsafe {
+        let msg = CStr::from_ptr((api.GetErrorMessage.expect("ORT API entry"))(status));
+        let msg = msg.to_string_lossy().into_owned();
+        (api.ReleaseStatus.expect("ORT API entry"))(status);
+        msg
+    };
+    Err(ort::Error::new(msg))
 }
 
 /// Reads a session's declared NCHW input side. A dynamic axis (`-1`, a ~4-billion-pixel
