@@ -43,9 +43,9 @@ pub const GATE_MARGIN_PX: u32 = 20;
 /// Pass-2 graze test, narrow band.
 pub const REFINE_NARROW_BAND_PX: u32 = 5;
 
-/// Pass-2 graze test threshold on A/B, A the band sized to `GATE_MARGIN_PX`, B the one sized to
-/// `REFINE_NARROW_BAND_PX`. Above it (R1) both bands hold the same product width: the product
-/// touches the image edge. At or below it (R2) the direction changes: it only grazes the edge.
+/// Pass-2 graze test threshold on A/B, A the band sized to `REFINE_NARROW_BAND_PX`, B the one sized
+/// to `GATE_MARGIN_PX`. At or above it (R1) both bands hold the same product width: the product
+/// touches the image edge. Below it (R2) the direction changes: it only grazes the edge.
 /// See docs/architecture/modules/core-shot-classifier-refine.md.
 pub const GRAZE_RATIO_MAX: f32 = 0.80;
 
