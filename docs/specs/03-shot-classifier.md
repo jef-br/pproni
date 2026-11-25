@@ -33,4 +33,4 @@ upsampling error left to correct, but the colour matting on the unknown ring run
 `ShotClassification { touches_edges: Vec<Edge>, mask_too_small: bool, refinements: Vec<EdgeRefinement> }`.
 
 The model always returns a mask. When it is empty there is **no verdict**: EIX `0000`,
-`mask_too_small` true, and [§5](05-routing.md) sends the image to R2. This answers Q3.
+`mask_too_small` true, and [§5](05-routing.md) sends the image to R2.
