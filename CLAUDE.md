@@ -11,15 +11,14 @@ All docs start at `docs/TOC-PProni.md` (an Obsidian vault; every folder has its 
 `pproni-*` cache file) are compiled in, and a missing one breaks the *build*, not the run. The exe
 never relies on an ONNX Runtime installed on the PC. The one Windows part it uses is `DirectML.dll`
 (in Windows 10 1903 and newer); without it the model runs on the CPU. Windows only, never Linux.
-How, why, and the clean finish: `docs/architecture/05-single-exe.md`. The startup abort
-(`core::preflight`) instead of an all-R3 batch: `docs/architecture/04-known-gaps.md`.
+How, why, and the clean finish: `docs/architecture/05-single-exe.md`.
 
 ## Diagrams
-`docs/diagrams/JBA2B.drawio.svg` is the one remaining diagram — an end-to-end App/Core flowchart.
+`docs/diagrams/JBA2B.drawio.svg` is the end-to-end App/Core flowchart.
 Reach it through the diagram-sync skill: you read the embedded mxGraph XML, not the picture.
 How to edit it without desyncing source from image: the skill's §2.2.
 
-## Maintenance rule — live again
+## Maintenance rule
 One node per module, one per `struct`/`enum`; add a module or public function → patch the node in
 the same commit. The rule, its history and what each container covers:
 `docs/architecture/06-diagram.md`.

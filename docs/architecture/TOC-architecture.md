@@ -17,7 +17,6 @@ documentation: source comments point here instead of repeating it.
 | [02-debug-tags.md](02-debug-tags.md) | The `PPRONI_DEBUG_TAGS` marker: EIX/BGC/FGC file names, segmask, stage trace |
 | [02-modules-shot-classifier.md](02-modules-shot-classifier.md) | `core::shot_classifier`: gate, refine, geometry, segmentation, BiRefNet |
 | [03-routing.md](03-routing.md) | R1 / R2 / R3, and how spec §5's rows live inside them |
-| [04-known-gaps.md](04-known-gaps.md) | What is knowingly missing |
 | [05-single-exe.md](05-single-exe.md) | One hardened exe, no install: embedded models, unpacked runtime |
 | [06-diagram.md](06-diagram.md) | `JBA2B.drawio.svg`, what each container says, the maintenance rule |
 

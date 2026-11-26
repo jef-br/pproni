@@ -27,12 +27,12 @@ Windows filenames). `EIX` comes from `shot_classifier::shotcode::eix_bits`; `BGC
 once, by `exporter::colors`, from the true-colour `working` copy and the mask — never from
 `model_input`. The `run_dir` dev harness uses the same two. With no verdict (a failed inference) there is no mask:
 the name carries `EIX=____` and no segmask is written. The model is embedded and `core::preflight`
-aborts the run if its session will not build, so a run of all-`EIX=____` files does not mean a
-broken install: it points at the classifier or the images themselves.
+aborts the run if its session will not build, so a run of all-`EIX=____` files is a valid result.
 
 `ShotClassification::mask_too_small` flags a mask that covers too little of the frame to be a
-subject. It is informational for the tag and never overrides `eix` — a tag must never claim an edge
-intersection the pipeline didn't actually route on. It doesn't appear in the filename today;
+subject. It is informational for the tag and never overrides `eix`.
+A tag must never claim an edge intersection the pipeline didn't actually route on. It doesn't appear in the filename today.
+A flagged mask can still be considered as a subject if its longest side in original pixels is at least (`MIN_SIZE`- (`MIN_SIZE`*`R1_MARGIN`)). 
 `run_dir`'s console output and `zzz_results.json` are where it's currently visible.
 
 The same marker also drives `core::trace`: when it is present, every image writes a per-stage

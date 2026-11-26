@@ -2,9 +2,12 @@
 
 [Up: table of contents](TOC-architecture.md)
 
-`classify` returns `Option`. `None` means *no verdict* — the model is unavailable, or inference
-failed on this image. That is deliberately distinct from `Some` with an empty `touches_edges`, which
-means *we looked, and the subject touches no edge*.
+`classify` returns `Option`.
 
-They route differently, so a model failure degrades one image to a safe framing instead of being
-silently processed as a clean free-standing shot.
+* **No verdict** is a normal answer: the model found no subject and returned an empty mask. It is
+  `Some`: `mask_too_small` is true, the tag reads `EIX=0000`, a segmask is written, the image goes to R2.
+* **`None`** comes only from a model error (an `Err` from the model run on this image). That is a
+  bug, not a Pproni outcome. Today `classify` drops it silently: the image is tagged `EIX=____`,
+  gets no segmask, and goes to R3. Reporting it is #31.
+
+`core::preflight` stops Pproni at startup if the model won't load so a missing model cannot cause `None`.

@@ -410,7 +410,6 @@ fn trace_stage_90(
 /// Check the classifier can actually run, before any image is touched. Callers run this once at
 /// startup and abort on `Err`: a missing runtime or a session that will not build is an environment
 /// fault, not an R3 image. It also builds the ~180MB session off the batch's critical path.
-/// See docs/architecture/04-known-gaps.md.
 pub fn preflight() -> Result<(), String> {
     model()?;
     // The headcut session too: a corrupt or missing embedded model must stop the run loudly, not

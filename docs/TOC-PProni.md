@@ -8,7 +8,6 @@ Open this folder as an Obsidian vault (Open folder as vault). Every folder has a
 * [Diagrams](diagrams/TOC-diagrams.md) — `JBA2B.drawio.svg`; edit it with the VS Code Draw.io extension.
 * [Analysis](analysis/TOC-analysis.md) — reports and measurements (images local only).
 * [Agent knowledge](agent-knowledge/TOC-agent-knowledge.md) — agreed facts the project's agents run on.
-* [Notes](notes/TOC-notes.md) — loose notes and ideas.
 
 Links are plain relative markdown links (`[text](path.md)`), so they work in Obsidian, on GitHub
 and in the link check (`python tools/check_docs.py`).

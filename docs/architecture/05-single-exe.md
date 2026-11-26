@@ -26,12 +26,11 @@ compiled in:
   DirectML build) the same way. It is the only runtime Pproni carries, and it serves
   both routes: the graphics card (DirectML) and the CPU. `ort`'s `load-dynamic` needs a real path to
   `LoadLibrary`, so at first use the bytes are written once to
-  `<base>/pproni-<tag>/pproni.dll` and that path is handed to `ort::init_from`. `<base>` is the first
-  writable of `%LOCALAPPDATA%`, the system temp folder and the exe's own folder. The `<tag>` is the
-  library's size plus a content hash: a rebuilt runtime lands in a fresh directory, repeat runs
-  reuse the file already there, and the write is atomic (temp name then rename) so concurrent
-  Pproni processes don't corrupt it. The exe never uses an ONNX Runtime that happens to be
-  installed on the PC.
+  `<base>/pproni-<tag>/pproni.dll` and that path is handed to `ort::init_from`. `<base>` is the first writable of `%LOCALAPPDATA%`, the system temp folder and the exe's own folder. `<tag>` is a fingerprint of the
+  embedded runtime: its size in hex, a dash, then a hash of three 4 KB samples of it (start,
+  middle, end), for example `pproni-1422420-fd138fc75a784c81`. Each runtime build gets its own tag,
+  so a rebuilt runtime lands in a fresh directory, repeat runs reuse the file already there, and the
+  write is atomic (temp name then rename) so concurrent Pproni processes don't corrupt it. The exe never uses an ONNX Runtime that happens to be installed on the PC.
 
 **`DirectML.dll` is not embedded.** The DirectML runtime calls Windows' own `DirectML.dll`, which
 ships with Windows 10 version 1903 and newer (the docs name no edition limits; checked on Windows 11

@@ -8,7 +8,7 @@ sees: `working` after the optimiser. `Prepared::crop` says where `model_input` w
 
 The optimiser is `preprocessor::optimizer::optimize_both` (`optimize` wraps it and keeps only the model input and the crop). It does two things in order, then a control:
 
-1. **Colour balance.** A Levels move worked out once per image: per channel it finds `lo` (the highest
+1. **Colour balance.** A *Levels move* worked out once per image: per channel it finds `lo` (the highest
    value with at most 0.68% of the pixels at or below it) and `hi` (the 99.32 percentile), shares the
    lowest `lo` and the highest `hi` across the three channels, derives a gamma
    `1 + lo/(255-lo) - (255-hi)/hi` kept between 0.01 and 9.99, and applies one 256-entry table to
@@ -36,5 +36,4 @@ frame.
 
 The segmentation model runs on the optimiser's crop of `working`. Its pass-2 refinement then re-decides the subject boundary
 against full-resolution pixels in `original`, because the mask it produced is upsampled and not
-pixel-accurate at the edge. Hand the classifier the same image twice and the scale between them
-collapses to 1.0, the refinement ring shrinks to its floor, and pass 2 stops doing anything.
+pixel-accurate at the edge. Hand the classifier the same image twice and the scale is 1.0: there is no upsampling error left to correct, but the ring keeps its full width (REFINE_SAFETY_PX) and the colour matching still runs, so pass 2 still does real work.

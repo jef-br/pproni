@@ -13,8 +13,7 @@ diagram drifted.
 > patch.
 
 
-[JBA2B.drawio.svg](../diagrams/JBA2B.drawio.svg) is an end-to-end flowchart across six containers: **App**, **Core**
-(Preprocessor → Shot Classifier → Processor → Exporter) and a dev-harness lane. It was rebuilt
+**[JBA2B.drawio.svg](../diagrams/JBA2B.drawio.svg)** is an end-to-end flowchart across seven containers: **App**, **Core** (holding Preprocessor → Shot Classifier → Processor → Exporter) and a **dev harness** lane. It was rebuilt
 against the current code, so the maintenance rule at the top of this page applies again — add a
 module or a public function, patch its node in the same commit.
 
@@ -45,8 +44,8 @@ What each container now says:
   `Prepared { original, working, model_input, crop, trims, framing, letterbox }`.
 - **Shot Classifier** — segmentation (graphics card or CPU), pass-1 `gate`, pass-2 `refine_edge`, the
   graze test, the `ShotClassification` + `Mask`, and then `route::decide` with `plan_square`: the
-  routing decisions live here, not in the routes. The no-verdict `None` is a node of its own,
-  because it is not the same thing as an empty edge list.
+  routing decisions live here, not in the routes. The model-error `None` (hidden today, #31) is a node of
+  its own, because it is not the same thing as an empty edge list.
 - **Processor** — the three routes, `route::send` having picked one. R1 is a chain of nodes, one
   per module of `center_and_stretch`: `flatness`, `grazes`, the solid test, `compose` (with
   `inpaint` and `Silhouette` beside it), `gradients`, `patch`, `solid`, and `extend` for the
