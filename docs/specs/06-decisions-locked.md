@@ -4,7 +4,8 @@
 
 - SC is the brain, and it is segmentation-based: a BiRefNet mask plus a two-pass gate/refine edge
   verdict.
-- **No verdict** (the model returned an empty mask) is a normal outcome: EIX `0000`, routed to R2 as a too-small mask.
+- An empty mask is a normal outcome: EIX `0000`, routed to R2 as a too-small mask.
+- **No verdict** (`____`) is something else: [EIX](03-eix.md).
 - Working size ≤ `WORKING_SIZE`; every edge the gate flags is confirmed at full resolution.
 - R1 is bbox-anchored: square = longest mask side + half of `R1_MARGIN` per free side, bled edges pinned, new canvas filled from the background. No saliency and no clipping of the subject.
 - R2 cuts the largest square, centred on the frame. A saliency-guided crop (CoG/MSR) is a planned refinement of R2 only: the full bleed is the only case with no background to anchor against, so saliency is the only signal left.

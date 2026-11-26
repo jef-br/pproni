@@ -128,7 +128,7 @@ fn main() {
         println!(
             "{file_name:<44}  {:>10}  {code}   [{verdict}{}]",
             format!("{}x{}", image.width(), image.height()),
-            if *mask_too_small { " · full-bleed" } else { "" },
+            if *mask_too_small { " · mask too small" } else { "" },
         );
         for r in &result.refinements {
             println!("    gate flagged {:<6} -> refined: touching={}", edge_name(&r.edge), r.touching);

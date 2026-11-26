@@ -14,7 +14,7 @@ always built into the exe (no feature flag).
 | `geometry` | `Edge`, `Grid`, `EdgeView`, `Rect` | edge-relative coordinates |
 | `segmentation` | `Mask`, `Instance`, `SegmentationModel`, `CroppedModel` | model-agnostic types; `CroppedModel` runs the model on the optimiser's crop and pastes the mask back |
 | `sampling` | `ColorStats`, `sample_background_color` | per-edge background colour |
-| `shotcode` | `eix_bits`, `mask_too_small`, `NO_VERDICT_EIX` | the `EIX` debug tag bits |
+| `shotcode` | `eix_bits`, `mask_too_small`, `NO_VERDICT_EIX` | the `EIX` debug tag bits ([spec: EIX](../specs/03-eix.md)) |
 | `plan` | `Pins`, `SquarePlan` (`new`, `real_region`, `overhang`), `Overhang` | R1 step 1: where the square goes, per axis; a blocked side never moves. Pure geometry |
 | `route` | `Shot`, `Route`, `R1Job`, `Decision`, `decide`, `send`, `plan_square` | the classifier's last step: picks R1/R2/R3 and its plan, then runs exactly that route |
 | `birefnet` | `BiRefNetConfig`, `BiRefNetModel` | ONNX inference, always built in |

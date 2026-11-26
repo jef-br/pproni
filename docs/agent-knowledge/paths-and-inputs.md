@@ -42,8 +42,8 @@ for one piece of Pproni, and disappear when that piece is done. Today: `JB cuts 
   - `<stem>--EIX=<trbl>[--BGC=<hex>][--FGC=<hex>].jpg` — the renamed export
     (`=` stands in for `:`). **EIX is read straight from this filename** — so
     check 5 (EIX stays `0000`) is a filename read, not a pixel scan.
-  - With no verdict (the classifier gave no answer) the name is `<stem>--EIX=____.jpg` and no
-    segmask is written.
+  - With no verdict the name is `<stem>--EIX=____.jpg` and no segmask is written. What EIX and
+    `____` mean: [spec: EIX](../specs/03-eix.md).
   - `<stem>_segmask.jpg` — the segmentation mask, sRGB JPEG at output size.
   - The same marker also switches on the per-stage trace and `log.txt`
     (see [architecture: debug tags](../architecture/02-debug-tags.md)).

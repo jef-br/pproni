@@ -20,20 +20,19 @@ output's shape (a square, for the three routes). The output picture is cropped o
 and the mask is not, so the two do not line up pixel for pixel: use the segmask to see what the model
 found, and stage 15 to see it in the picture's own proportions.
 
-`EIX` is the 4-bit top-right-bottom-left edge string — always the classifier's real verdict, the
-same one `route::decide` routed on; `BGC`/`FGC` are the dominant background / weighted-median
-foreground colours, each emitted only when sampleable. `=` stands in for the spec's `:` (illegal in
-Windows filenames). `EIX` comes from `shot_classifier::shotcode::eix_bits`; `BGC`/`FGC` are sampled
-once, by `exporter::colors`, from the true-colour `working` copy and the mask — never from
-`model_input`. The `run_dir` dev harness uses the same two. With no verdict (a failed inference) there is no mask:
-the name carries `EIX=____` and no segmask is written. The model is embedded and `core::preflight`
-aborts the run if its session will not build, so a run of all-`EIX=____` files is a valid result.
+[`EIX`](../specs/03-eix.md) is the edge verdict. `BGC`/`FGC` are the dominant
+background / weighted-median foreground colours, each emitted only when sampleable. `=` stands in
+for the spec's `:` (illegal in Windows filenames). `BGC`/`FGC` are sampled once, by
+`exporter::colors`, from the true-colour `working` copy and the mask — never from `model_input`.
+The `run_dir` dev harness uses the same code for all three tags. With no verdict (`EIX=____`) there
+is no mask, so no segmask is written. `core::preflight` aborts the run if the model won't load, so
+these files do not mean a broken install.
 
-`ShotClassification::mask_too_small` flags a mask that covers too little of the frame to be a
-subject. It is informational for the tag and never overrides `eix`.
-A tag must never claim an edge intersection the pipeline didn't actually route on. It doesn't appear in the filename today.
-A flagged mask can still be considered as a subject if its longest side in original pixels is at least (`MIN_SIZE`- (`MIN_SIZE`*`R1_MARGIN`)). 
-`run_dir`'s console output and `zzz_results.json` are where it's currently visible.
+`ShotClassification::mask_too_small` is a source of information: the router reads it and sends the
+image to R2. It is true when the mask covers less than 5% of the frame (`MASK_MIN_COVERAGE`) and its
+longest side in the original picture is under 733 px (`MASK_MIN_LONGEST_SIDE_PX`: `MIN_SIZE` less
+R1's margin). It never changes `EIX`. The flag is not in the file name. You can see it in the trace log, in `run_dir`'s console and in
+`zzz_results.json`.
 
 The same marker also drives `core::trace`: when it is present, every image writes a per-stage
 trace (`<stem>  -  NN.jpg`, `<stem>  -  log.txt`) into the output image's folder, next to its

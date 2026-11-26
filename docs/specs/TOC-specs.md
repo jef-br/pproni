@@ -19,6 +19,7 @@ diagrams for "what it should do". Status tags mark reality vs intent.
 | 1 | [Principles & hard invariants](01-principles.md) |
 | 2 | [Pipeline overview](02-pipeline-overview.md) |
 | 3 | [Shot Classifier (SC) — the brain](03-shot-classifier.md) |
+| 3 | [EIX, the edge verdict](03-eix.md) |
 | 4 | [Resolution & bbox policy](04-resolution-policy.md) |
 | 5 | [Detection outcomes & routing](05-routing.md) |
 | 6 | [Decisions locked](06-decisions-locked.md) |

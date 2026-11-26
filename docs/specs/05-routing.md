@@ -2,7 +2,7 @@
 
 [Up: table of contents](TOC-specs.md)
 
-Three routes, keyed on the edge-intersection (EIX) verdict:
+Three routes, keyed on the edge-intersection verdict ([EIX](03-eix.md)):
 
 | Route | Verdict | Strategy |
 |---|---|---|

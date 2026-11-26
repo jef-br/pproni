@@ -2,14 +2,14 @@
 
 [Up: module pages](TOC-module-architecture.md)
 
-Detail moved out of `src/core/shot_classifier/shotcode.rs`. The tag itself (`EIX`/`BGC`/`FGC` file
-names) is described in [2. Modules: debug tags](../02-debug-tags.md).
+Detail moved out of `src/core/shot_classifier/shotcode.rs`. What `EIX` means: [spec: EIX](../../specs/03-eix.md).
+The tag's file names (`EIX`/`BGC`/`FGC`) are described in [2. Modules: debug tags](../02-debug-tags.md).
 
 ## The background-type tag still to come
 The shot code is partial: a background-type (`BG`) tag is still to come, and it will cover the
 case `mask_too_small` reports today — a mask covering too little of the frame to be a subject.
 Routing (`route::decide`) reads only `touches_edges` and `mask_too_small`. Why `eix` must stay the
-classifier's real verdict: [2. Modules: debug tags](../02-debug-tags.md).
+classifier's real verdict: [spec: EIX](../../specs/03-eix.md).
 
 ## What `mask_too_small` catches
 Nothing about *why* the mask is small is measured. The images this catches are close-ups where the

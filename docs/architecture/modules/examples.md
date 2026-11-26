@@ -26,10 +26,10 @@ reproduces pipeline order, and the flat output keeps each image's files together
 ## run_dir: the shot code
 Partial: the BG type comes later.
 
-* **EIX** — edge intersection, 4-bit TRBL (top-right-bottom-left). `1000` = top only, `0110` =
-  right+bottom, `0000` = no intersection. Always the classifier's real verdict — a
-  `mask_too_small` flag (probable full-bleed close-up: tiny mask, no uniform background) is
-  reported separately (console/JSON) and never overrides it.
+* **EIX** — the edge verdict: [spec: EIX](../../specs/03-eix.md). A `mask_too_small` flag
+  (the mask is too small to be a subject, often a close-up where the product fills the picture
+  and the model reads it as background) is reported separately
+  (console/JSON) and never overrides it.
 * **BGC** — background colour: dominant colour of the inverse BiRefNet mask, emitted only when it
   covers at least `BGC_PRESENCE` of that region (`src/core/exporter/colors.rs`, 0.9 at the time
   of writing).

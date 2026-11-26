@@ -9,7 +9,7 @@ off that one decision.
 |---|---|---|
 | **A · Load** | Decode, apply EXIF orientation, read the embedded ICC profile. | `BUILT` |
 | **B · Preprocess** | Flatten alpha onto white, colour-manage to sRGB, derive the working-resolution copy, then run the optimiser: colour-balance (Levels, once) then trim crop, producing the image the model sees. Detail in [architecture: why two resolutions](../architecture/01-why-two-resolutions.md). | `BUILT` |
-| **C · Classify** | Segment the image the optimiser produced, then decide per edge whether the subject reaches it. Emits the EIX verdict — or no verdict. | `BUILT` |
+| **C · Classify** | Segment the image the optimiser produced, then decide per edge whether the subject reaches it. Emits the [EIX](03-eix.md) verdict — or no verdict. | `BUILT` |
 | **D · Headcut** | Optional. Gated for now. Cut above the face (found by YuNet), then judge the edges again. Its own step, not part of Classify. | `ONGOING ` |
 | **E · Framing** | Reads the two trims and the mask. White bars on one axis: centre the content. A frame all round: cut it off and judge the edges again. Anything else: leave as it is. | `BUILT` |
 | **F · Dispatch** | EIX verdict → one of three routes ([§5](05-routing.md)). | `BUILT` |
