@@ -11,8 +11,7 @@ Spec §5 and 03-routing.md still describe the older layout; see the open item in
 
 ## R3 in the current code
 R3 `Route::Fallback` takes "no verdict, or no square can be planned": it fits the whole image into a
-square canvas. Spec §5's R3 row still says only "no verdict"; the R1-declines case is §5.1's
-"Impossible case".
+square canvas. The R1-declines case is §5.1's "Impossible case".
 
 ## What reaches `decide`
 Whether framing is possible. R2 is the answer to "there is nothing here to frame around, or no room

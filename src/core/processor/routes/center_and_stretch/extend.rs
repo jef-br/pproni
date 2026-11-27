@@ -1,4 +1,4 @@
-//! Part C — re-framing a trimmed no-backdrop / textured scene (`Prepared::letterbox` set) to a
+//! Re-framing a trimmed no-backdrop / textured scene (`Prepared::letterbox` set) to a
 //! square **without** R1's stretch, which smears a textured overhang. [`reframe_to_square`] tries,
 //! highest first: [`square_crop_preserving`], [`seam_carve_to_square`], [`white_pad`].
 //! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.

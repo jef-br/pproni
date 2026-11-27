@@ -29,6 +29,10 @@ import tempfile
 import urllib.parse
 import zlib
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 # drawio stamps this on its own exports; keep it so the file looks like the editor's.
 HOST = "65bd71144e"
 

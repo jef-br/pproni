@@ -30,7 +30,8 @@ pub(crate) use yunet_model_path;
 
 // ---- Shot classification ----------------------------------------------------------------------
 // `GATE_MARGIN_PX` and `REFINE_NARROW_BAND_PX` are in working-resolution pixels, so they are coupled
-// to `WORKING_SIZE` — change one and the others shift meaning.
+// to `WORKING_SIZE` — change one and the others shift meaning. R1's flat-edge gradients reuse both
+// as original-image pixels, unscaled (docs/architecture/modules/core-processor-routes-center-and-stretch.md).
 // See docs/architecture/01-why-two-resolutions.md.
 
 /// Longest side of the working-resolution copy the segmentation model runs on.
@@ -74,11 +75,6 @@ pub const TRIM_SAMPLES_PER_EDGE: u32 = 4;
 pub const TRIM_OUTLIER_FLOOR: u32 = 120;
 pub const TRIM_OUTLIER_K: f64 = 1.5;
 pub const TRIM_MIN_KEEP: usize = 4;
-
-/// A pixel outside the backdrop range only counts as product when it sits inside a block of this
-/// many pixels per side that is entirely outside it. Smaller specks and thinner lines are treated as
-/// backdrop (a morphological closing of the backdrop with a square window of this size).
-pub const TRIM_CLOSE_K: u32 = 2;
 
 /// Margin grown on every side of the squared product box: the larger of `TRIM_MARGIN_MIN_PX` and
 /// `TRIM_MARGIN_SHARE` of its side (`optimizer::square_crop`).
@@ -136,12 +132,12 @@ pub const R1_MARGIN: f32 = 2.0*0.042;
 /// background left to stretch does not read as a dead-flat seam against its JPEG-noisy neighbours.
 pub const R1_INPAINT_NOISE_SIGMA: f32 = 2.0;
 
-// ---- R1 · mask-aware fill (plan Part A) -------------------------------------------------------
+// ---- R1 · mask-aware fill ----------------------------------------------------------------------
 //
 // Drive the segmask-aware stretch (`center_and_stretch::compose`). Working values: the user allows
 // tuning when an image shows a problem. See docs/work-state/2026-10-21-trims-and-framing.md.
 
-/// Plan name `FILL_SOURCE_CLEARANCE_PX`: the product-to-background distance the fill uses, in
+/// The product-to-background distance the fill uses, in
 /// *working*-resolution pixels (scaled at use). The silhouette grown by it is the product band,
 /// never a stretch source. See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub const R1_FILL_SOURCE_CLEARANCE_WORKING_PX: u32 = GATE_MARGIN_PX;
@@ -230,20 +226,19 @@ pub const R1_SOLID_BLUR_SIGMA_SHARE: f32 = 0.01;
 pub const R1_SOLID_RAMP_START: f32 = 0.33;
 pub const R1_SOLID_RAMP_END: f32 = 0.66;
 
-// ---- Per-edge trim + texture detector (plan Part C; shared with deferred D) --------------------
+// ---- Per-edge trim + texture detector (textured scenes with flat bars) --------------------------
 //
 // A preprocessor-stage primitive, upstream of the mask. Working values, tuned only when an image shows a problem.
 
-/// Plan name `T_edge_flat`. Max per-channel span (0..255) across one edge's kept border samples
+/// Max per-channel span (0..255) across one edge's kept border samples
 /// for that edge to count as `flat`.
 pub const T_EDGE_FLAT: u16 = 12;
 
-/// Plan name `T_texture_highpass`. Mean high-pass response (0..255) outside the subject proxy above
-/// which the trimmed background reads as *textured* (a Part C scene) rather than *double-flat* (a
-/// frame — the deferred Part D signal).
+/// Mean high-pass response (0..255) outside the subject proxy above which the trimmed background
+/// reads as *textured* (a scene R1 reframes) rather than flat (left to `core::framing`).
 pub const T_TEXTURE_HIGHPASS: f32 = 12.5;
 
-/// Seam-carve perceptual quality gate (plan Part C, priority 2). The max mean per-pixel energy
+/// Seam-carve perceptual quality gate (the reframe's second choice). The max mean per-pixel energy
 /// (forward-difference luma gradient `|dL/dx| + |dL/dy|`, 0..~510) of the seams a round inserts.
 /// Above it there is no low-energy corridor to grow through, so the carve would visibly warp and
 /// `extend::seam_carve_to_square` rejects — the chain falls through to white-pad.

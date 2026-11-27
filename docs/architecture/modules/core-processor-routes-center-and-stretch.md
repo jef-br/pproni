@@ -15,13 +15,13 @@ below. The decisions behind the stretch:
 The product silhouette, grown outward, as the span it covers on every row (`row_x`) and every
 column (`col_y`) of the *original* image, each `[lo, hi)`. That is the **product band**: copied
 untouched and never a stretch source. Growing it keeps a cuff, an edge or a tiny shadow hugging the
-product out of the stretch (plan A.2; the grey streak on images 10 and 11). The growth is
-`R1_FILL_SOURCE_CLEARANCE_WORKING_PX` (plan name `FILL_SOURCE_CLEARANCE_PX`), the one
+product out of the stretch (the grey streak on images 10 and 11). The growth is
+`R1_FILL_SOURCE_CLEARANCE_WORKING_PX`, the one
 product-to-background distance the fill may use, in working pixels, scaled at use.
 
 It is built once from the working-resolution mask, scaled up to the original, then grown by
 `clearance_px` pixels in every direction (a disc, not a square). `clearance_px` is
-`R1_FILL_SOURCE_CLEARANCE_WORKING_PX` scaled up to original pixels (plan A.2). Lines the grown shape
+`R1_FILL_SOURCE_CLEARANCE_WORKING_PX` scaled up to original pixels. Lines the grown shape
 misses take the span of the nearest line that has one, so the band changes smoothly instead of
 jumping between silhouette and bounding box.
 
@@ -77,7 +77,7 @@ plays the left edge, and checks the results match.
 * the **overhang**: from the real border out to the canvas border.
 
 The segment between the canvas border and the band is rewritten: the source is stretched evenly
-over itself and the overhang. Nothing is invented. A column of the square past the picture's own
+over itself and the overhang. Nothing is invented on a stretched line. A column of the square past the picture's own
 columns takes the nearest real column's band, which is where the left and right edges took their
 background from.
 
@@ -92,7 +92,7 @@ there is nothing to cover, and the nearest `total` pixels are kept as they are.
 **A line with no source (bled).** When the grown product runs to the real border there is nothing
 to stretch. The segment is first filled flat with the background colour, never black
 (`inpaint::fill_segment`): `bgc`, the one dominant background colour the exporter sampled, or white
-without one. Then `borrow_neighbour_lines` (plan A.5) turns each bled pixel into the blend of the
+without one. Then `borrow_neighbour_lines` turns each bled pixel into the blend of the
 pixels at the same position on the nearest clean line either side, weighted by closeness, plus the
 photo's measured grain. A run of bled lines becomes a smooth ramp between the two clean lines round
 it, with no hard-edged block; a clean line on one side only is copied; an edge with no clean line
@@ -120,7 +120,7 @@ over the source.
 The grain is added with `gauss`: a standard-normal value from Box-Muller on a hash of (line,
 distance, channel), so the same picture always gives the same grain.
 
-## extend.rs: the textured-scene reframe (plan Part C)
+## extend.rs: the textured-scene reframe
 
 R1 runs it (`R1Job::Reframe`, chosen in `shot_classifier::route`) when the preprocessor trimmed
 flat letterbox/pillarbox bars round a textured scene (`preprocessor::optimizer::trim_letterbox`,
@@ -161,9 +161,11 @@ land in `fill_segment` and get a flat BGC-or-white fill; `compose`'s neighbour-l
 replace them with the background of the clean lines round them. Every line that does have a source
 stays with `compose`; this module never touches it.
 
-`fill_segment` also has arms R1 does not use: with the end pixels of the stretched runs either side
-(`left_ctx` / `right_ctx`, "left" being the lower output index whatever image edge that is) it
-blends between them, or fills flat from the one present. A wider inpainter, if ever needed, slots in
+For a fully bled segment R1 calls `fill_segment` with no context, so it gets a flat fill. The other
+arms are used too: for grazed lines on a flat edge, R1 calls `fill_segment_with_noise` (noise 0) with
+the end pixels of the stretched runs either side (`left_ctx` / `right_ctx`, "left" being the lower
+output index whatever image edge that is). It blends between them, or fills flat from the one
+present (see *The second test* below). A wider inpainter, if ever needed, slots in
 behind the same signature ([open follow-ups](../../work-state/open-r1-stretch-follow-ups.md)).
 
 The fill carries uniform noise up to ±`R1_INPAINT_NOISE_SIGMA` from a signed byte roll, so it does not read as a dead-flat seam against the JPEG-noisy stretched pixels
@@ -180,6 +182,9 @@ After `compose`, `gradients::blend` fades the invented edges into one flat colou
 | red | the bottom | from `bottom + max(25% of box height, GATE_MARGIN_PX)` up to `bottom + REFINE_NARROW_BAND_PX` |
 | green, yellow | the bottom corners | along the diagonal from the border, `R1_MARGIN / 2 * long side` under the box, to `REFINE_NARROW_BAND_PX` under the box beside it |
 | blue, cyan | left, right | from `REFINE_NARROW_BAND_PX` in from the border to `REFINE_NARROW_BAND_PX` short of the box |
+
+When the box is within 2 × `REFINE_NARROW_BAND_PX` of the border, a fade ends 1 px from the box
+instead of `REFINE_NARROW_BAND_PX`.
 
 A zone exists only on a side the square reaches past the image (the overhang); the corners also need
 the bottom zone. The bottom zone needs `GATE_MARGIN_PX` of room under the box, else none of the three
@@ -232,8 +237,9 @@ found, a flagged edge has blocked lines, and `flatness::crease_step` is above `R
 no patch fill. After `compose` and the gradients, `solid::apply` keeps, per canvas pixel, a share `K`: the
 product (mask plus `R1_SOLID_MARGIN_PX`, feathered) and a shadow band under it. The band is the mask moved down
 by `R1_SOLID_SHADOW_SHARE` of the grid's side minus the mask, blurred down the same length, Gaussian
-(`R1_SOLID_BLUR_SIGMA_SHARE`), scaled so the strip next to the mask reads 1, and faded off over the first third
-of the mask's height (`R1_SOLID_RAMP_START`/`END`) so no halo forms at the top. Everything else is the colour,
+(`R1_SOLID_BLUR_SIGMA_SHARE`), scaled so the strip next to the mask reads 1, and faded in down the mask's height:
+off down to the first third (`R1_SOLID_RAMP_START`), fully on from two thirds (`R1_SOLID_RAMP_END`), a
+straight ramp between, so no halo forms at the top. Everything else is the colour,
 the per-channel median of the working picture outside the mask and its `R1_FLAT_BLOCK_GAP_PX` gap. Work is
 on the mask's grid and `K` is read back bilinearly, so the canvas size does not matter.
 

@@ -374,7 +374,7 @@ fn sample_at(seg: &[Rgb<u8>], s: f32) -> Rgb<u8> {
     Rgb([cubic(0), cubic(1), cubic(2)])
 }
 
-/// Plan A.5 neighbour-line borrow, for one edge: each pixel of a `bled` line becomes the blend of the
+/// Neighbour-line borrow, for one edge: each pixel of a `bled` line becomes the blend of the
 /// nearest clean lines either side plus `grain`. Only bled pixels are ever written.
 /// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 fn borrow_neighbour_lines(

@@ -8,7 +8,7 @@
 //! the letterbox detector: see docs/architecture/modules/core-preprocessor-optimizer.md.
 
 use super::super::config::{
-    T_EDGE_FLAT, T_TEXTURE_HIGHPASS, TRIM_CLOSE_K, TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE,
+    T_EDGE_FLAT, T_TEXTURE_HIGHPASS, TRIM_MARGIN_MIN_PX, TRIM_MARGIN_SHARE,
     TRIM_MIN_KEEP, TRIM_OUTLIER_FLOOR, TRIM_OUTLIER_K, TRIM_RECHECK_TOLERANCE_PX, TRIM_SAMPLES_PER_EDGE,
 };
 use super::super::shot_classifier::geometry::Rect;
@@ -253,6 +253,12 @@ fn colour_range(samples: &[Rgb<u8>]) -> ([u8; 3], [u8; 3]) {
     (lows, highs)
 }
 
+/// A pixel outside the backdrop range only counts as product when it sits inside a block of this
+/// many pixels per side that is entirely outside it. Smaller specks and thinner lines are treated as
+/// backdrop (a morphological closing of the backdrop with a square window of this size). Not a
+/// tuning knob: `product_box` probes a 2x2 block directly.
+const TRIM_CLOSE_K: u32 = 2;
+
 /// The tightest box around the product, or `None` when there is none. A pixel is product when it is
 /// outside the backdrop colour range *and* sits in a `TRIM_CLOSE_K` x `TRIM_CLOSE_K` block of such
 /// pixels. See docs/architecture/modules/core-preprocessor-optimizer.md.
@@ -290,7 +296,7 @@ fn product_box(img: &RgbImage) -> Option<Rect> {
     (x0 != u32::MAX).then(|| Rect::from_bounds(x0, y0, x1, y1))
 }
 
-// ---- Per-edge trim + texture detector (plan Part C; shared with deferred Part D) --------------
+// ---- Per-edge trim + texture detector (textured scenes with flat bars) ------------------------
 // Read by [`detect_letterbox`]. See docs/architecture/modules/core-preprocessor-optimizer.md.
 
 /// How one edge relates to the frame's backdrop.
@@ -360,7 +366,7 @@ fn classify_trim_edges(img: &RgbImage) -> [EdgeKind; 4] {
 
 /// Mean 3x3 8-neighbour-Laplacian magnitude (on luma) over the interior of `region`, skipping the
 /// pixels inside `exclude`: a cheap texture measure, compared against `T_TEXTURE_HIGHPASS`. High
-/// means a textured scene (Part C), near zero a flat frame or backdrop (Part D's double-flat signal).
+/// means a textured scene, near zero a flat frame or backdrop.
 pub fn highpass_texture(img: &RgbImage, region: Rect, exclude: Option<Rect>) -> f32 {
     let skipped = |x: u32, y: u32| {
         exclude.is_some_and(|e| x >= e.x && x < e.x + e.w && y >= e.y && y < e.y + e.h)
@@ -409,7 +415,7 @@ pub fn background_texture(img: &RgbImage) -> (Option<Rect>, f32) {
 }
 
 /// Whether the background outside the product proxy is textured enough to count as a real scene
-/// (Part C) rather than a flat frame/backdrop (Part D).
+/// rather than a flat frame or backdrop.
 #[cfg(test)]
 fn background_is_textured(img: &RgbImage) -> bool {
     background_texture(img).1 > T_TEXTURE_HIGHPASS
@@ -462,14 +468,14 @@ pub struct LetterboxReport {
     /// which case the whole interior is measured.
     pub proxy: Option<Rect>,
     pub texture: Option<f32>,
-    /// The content rectangle once the bars are cut, when the plan's pattern matched. Before the
+    /// The content rectangle once the bars are cut, when the edge pattern matched. Before the
     /// texture test.
     pub bars: Option<Rect>,
     /// `bars`, once the interior also reads as textured: the rectangle to keep.
     pub keep: Option<Rect>,
 }
 
-/// Detect flat padding bars on one axis (plan Part C's trim action) and say what was measured.
+/// Detect flat padding bars on one axis and say what was measured.
 /// Trims only when an opposite pair of edges is `FlatOther`, the other pair `Varied`, and the
 /// trimmed interior reads as textured; every other mix leaves the image whole (the `EIX0000` no-flip
 /// bound). See

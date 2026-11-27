@@ -7,7 +7,7 @@ Detail moved out of the `src/core/shot_classifier/birefnet.rs` comments. The mod
 model and the unpacked runtime are [5. Single hardened exe](../05-single-exe.md).
 
 ## What the model is
-A pure foreground/background model: no boxes, no classes, no NMS — one sigmoid mask at full model
+A pure foreground/background model: no boxes, no classes, no NMS — one sigmoid mask inside the model
 resolution answering "subject or not" per pixel.
 
 ## Input and output tensors
@@ -46,12 +46,11 @@ On a graphics card the session gets two DirectML settings on top of the shared o
 ONNX Runtime's generic call (`SessionOptionsAppendExecutionProvider` with `"DML"`). If that call fails, the
 card is rejected and `build` tries the next one. Nothing is run to prove a card works.
 
+`backend()` names where the model runs: the card's name, or "CPU" with the reason a card was rejected.
+Which card is tried first: [core::shot_classifier](core-shot-classifier.md).
+
 ## Session memory and the optimization level
 The session uses one intra-op thread because `app::batch` fans images across cores with rayon.
-Peak memory tracks that fan-out — roughly 400MB of activations per concurrent worker — and not the
-optimization level: measured session-init peak is 393MB at Level1, Level2 and Level3 alike. An
-earlier comment in the code blamed Level3 for an OOM during session init; that was a 4GB CI
-container, not a property of the graph.
 
 ## Thresholding in logit space
 `logit` turns the mask threshold into a logit once per image. A sigmoid is monotonic, so
@@ -62,7 +61,8 @@ is unchanged pixel for pixel.
 
 ## Loading the runtime and the model
 * `init_runtime` checks the dylib path before `ort` is touched, so a missing runtime gives the
-  operator a sentence naming the file instead of a stack trace. The dynamic loading is `Cargo.toml`'s
-  `ort` entry (`load-dynamic`); when the function goes is in [5. Single hardened exe](../05-single-exe.md).
+  operator a sentence naming the file instead of a stack trace.
+  The dynamic loading is `Cargo.toml`'s `ort` entry (`load-dynamic`). If static linking ever works,
+  `init_runtime` and the dynamic loading go away: [5. Single hardened exe](../05-single-exe.md).
 * `load_from_file` exists for the `examples/` dev harness, to run *other* exports (a re-quantized
   model, a different side) against the same session settings.

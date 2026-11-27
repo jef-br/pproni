@@ -8,7 +8,12 @@ Detail moved out of the `src/core/shot_classifier/geometry.rs` comments. The ide
 [core::shot_classifier::sampling](core-shot-classifier-sampling.md).
 
 ## Who goes through `EdgeView`
-The per-edge algorithms written against `Grid` for the top edge: the border-band scan (`gate`),
-background-colour sampling (`sampling`) and the trimap ring (`refine`). `Grid` is implemented for
-`segmentation::Mask` directly and for `image::RgbImage` through the thin `sampling::ImageGrid`
-adapter, so both run through the same edge-relative code.
+The per-edge algorithms written against `Grid` for the top edge:
+  * the border-band scan (`gate`)
+  * background-colour sampling (`sampling`)
+  * the border checks in edge refinement (`refine` in `refine_edge`); the trimap ring itself reads the mask directly
+  * the graze test (`refine` in `graze_ratio`)
+
+`Grid` is implemented for
+`segmentation::Mask` directly and for `image::RgbImage` through the thin `sampling::ImageGrid` adapter,
+so both run through the same edge-relative code.

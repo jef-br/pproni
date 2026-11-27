@@ -9,12 +9,12 @@
 | `core::options` | `Options` (`enable_headcuts`), built once per run |
 | `core::runtime` | `onnxruntime_dylib()`: unpacks the embedded ONNX Runtime |
 | `core::trace` | `begin`, `image`, `note`, `active`, `debug_enabled`: the debug trace, on only with the `PPRONI_DEBUG_TAGS` marker |
-| `core::preprocessor` | `Decoded`, `Prepared`, `Trims`, `Framing`, `load`, `preprocess`, `prepare`; `optimizer::optimize`, `optimize_both`, `detect_letterbox` |
+| `core::preprocessor` | `Decoded`, `Prepared`, `Trims`, `Framing`, `load`, `preprocess`, `prepare`; `optimizer::optimize`, `optimize_both`, `Optimised`, `detect_letterbox`, `LetterboxReport`, `EdgeKind`, `trim_letterbox`, `highpass_texture`, `background_texture` |
 | `core::preprocessor::maria_antonieta` | `cut_above_philtrum(section) -> Option<RgbImage>`, `preflight()` — headcut on a face-containing section via an embedded YuNet (OpenCV Zoo, BSD-3-Clause) ONNX; cut above the philtrum, else `None`. Called from `process_file` post-classify when `Options::enable_headcuts` is on and EIX leaves Left or Right free |
 | `core::framing` | `decide`, `Decision` (`Keep`, `Centre`, `Peel`), `border_colour`, `deepen_peel` |
 | `core::processor::routes` | the three route modules below; the decision itself is `core::shot_classifier::route` (`Route`, `R1Job`, `Shot`, `Decision`, `decide`, `send`, `plan_square`) |
 | `core::processor::routes::{center_and_stretch, crop_square, fallback}` | `apply` |
-| `core::exporter` | `export`, `ShotInputs`, `shot_tags`; `colors::sample` (BGC/FGC); `save::save_jpeg_srgb`, `icc::srgb_profile` |
+| `core::exporter` | `export`, `ShotInputs`, `shot_tags`, `colors::sample` (BGC/FGC), `colors::parse_hex`, `resize::to_envelope` `save::save_jpeg_srgb`, `icc::srgb_profile` |
 
 `core::framing` runs once after the model, on trim 1's box, trim 2's box (when it moved), the number of
 edges the subject touches and the mask. It tells padding and frames from real backdrop:

@@ -141,7 +141,9 @@ impl Target {
 /// Sample one edge of the real photo: `a` is the average colour of its edge band (the `band` lines
 /// nearest the border), `b` the average of its single outermost line, both over the lines the product
 /// does not graze. The ramp runs from the band's inner edge to the canvas edge. `None` with fewer than 10
-/// such lines. `edge` is Bottom, Left or Right.
+/// such lines, or when the photo reaches no deeper than `band` from this edge (its width for Left and
+/// Right, its height for Bottom): the band would then read invented pixels, or past the canvas and
+/// panic. `edge` is Bottom, Left or Right.
 fn edge_target(canvas: &RgbImage, sq: &Square<'_>, edge: Edge, real: [i64; 4], band: i64) -> Option<Target> {
     let side = canvas.width() as i64;
     let sideways = matches!(edge, Edge::Left | Edge::Right);
@@ -213,7 +215,8 @@ pub fn blend(canvas: &mut RgbImage, sq: &Square<'_>) -> bool {
     }
     // The real photo, in canvas pixels: the rest of the square is invented.
     let real = [over.left as i64, over.top as i64, (side - over.right) as i64, (side - over.bottom) as i64];
-    // The whole-photo colour is what a zone falls back on when its own edge has too few lines to sample.
+    // The clean-background colour is what a zone falls back on when `edge_target` cannot sample its
+    // own edge.
     let Some(colour) = clean_background(canvas, sq, &layout, real, bb) else {
         return false;
     };

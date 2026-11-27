@@ -20,5 +20,4 @@ around.
 ## A condition measured and left out
 A further condition — "and no uniform background was found" — was measured and left out. It is the
 only thing that would tell a genuinely small product on clean paper, jewellery being the obvious
-case, from this. Across the 37-image set the two rules flag exactly the same images, so it earns
-nothing yet; add it back against a picture that needs it.
+case, from this. There is no representative picture as part of the core dataset today.

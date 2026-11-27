@@ -1,6 +1,6 @@
 //! R1 fallback: a flat BGC-or-white fill for a segment of a line that has no background to stretch
-//! from (*fully bled*). Lines with a source stay with [`super::compose`]. R1 does not use
-//! [`fill_segment`]'s `left_ctx`/`right_ctx` arms.
+//! from (*fully bled*). Lines with a source stay with [`super::compose`]. Grazed lines on a flat
+//! edge use the `left_ctx`/`right_ctx` arms, through [`fill_segment_with_noise`].
 //! See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 
 use image::Rgb;

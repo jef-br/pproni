@@ -23,7 +23,9 @@ Trim 1 stops where something not of the frame's colour begins, so where the prod
 frame (a dark product against a dark frame) the box can stop several pixels inside it. Each side of
 trim 1's box is moved inward while its outermost line is still frame: at least 99% of the pixels
 that are NOT under the mask lie within `T_EDGE_FLAT` of the frame colour on every channel. No side
-moves more than a quarter of the box.
+is peeled more than a quarter of the box. Then every side that moved gives up one more line,
+because the resize blurs the line where the frame ends. So a side can move a quarter plus one pixel.
 
 The mask is what makes this safe: product pixels never count against the frame, and a line with
-real background or product outside the mask stops the peel.
+real background or product outside the mask stops the peel. A line that lies wholly under the mask
+stops it too: with no pixel left to judge, it does not count as frame.

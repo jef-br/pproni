@@ -15,7 +15,7 @@ use crate::core::processor::routes::{center_and_stretch, crop_square, fallback};
 use image::RgbImage;
 
 /// What the classifier produced for one image: the edge verdict and the mask it was read from,
-/// always together. No verdict at all is `None`, R3's case.
+/// always together. No verdict is `None` (today only a model error, #31), which goes to R3.
 ///
 /// `mask` is at [`Prepared::working`] resolution (longest side ≤ `WORKING_SIZE`); routes compose
 /// from [`Prepared::original`] and cross with [`Shot::subject_bbox_in`].
@@ -116,7 +116,8 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
     }
 
     // R1 from here, unless nothing lets it work. An empty mask has no subject to centre on: R3's
-    // safe framing beats a square around an arbitrary point.
+    // safe framing beats a square around an arbitrary point. An empty mask is already sent to R2
+    // above (too small), so this is not reached in practice.
     let Some(subject_box) = subject else {
         return decided(
             Route::Fallback,
@@ -130,7 +131,7 @@ pub fn decide(prep: &Prepared, shot: Option<Shot<'_>>) -> Decision {
         let job = R1Job::Reframe { keep, subject: subject_into(subject_box, keep) };
         return decided(
             Route::CenterAndStretch(job),
-            Some(format!("R1 → Part C: textured scene, reframing on the trimmed {keep:?} rather than stretching")),
+            Some(format!("R1 → Textured scene: reframing on the trimmed {keep:?} rather than stretching")),
         );
     }
     // `None`: no square respects the bled edges, so R3 frames safely rather than R1 guessing.
@@ -232,8 +233,8 @@ mod tests {
 
     #[test]
     fn no_verdict_falls_back() {
-        // The distinction R3 exists for: "touches nothing" (bits 0000 below, which R1 takes) and
-        // "no verdict" must not collapse.
+        // "Touches nothing" (bits 0000 below, which R1 takes) and "no verdict" (`None`, which R3
+        // takes) must not collapse.
         let d = decide(&prepared(100, 100), None);
         assert_eq!(d.route, Route::Fallback);
         assert_eq!((d.subject, d.plan, d.note), (None, None, None));
@@ -306,7 +307,7 @@ mod tests {
         let class = verdict(&[]);
         let d = decide(&prep, Some(Shot { class: &class, mask: &mask, bgc: None }));
         assert_eq!(d.route, Route::CenterAndStretch(R1Job::Reframe { keep, subject: subject_into(subject, keep) }));
-        assert!(d.note.unwrap().starts_with("R1 → Part C: textured scene"));
+        assert!(d.note.unwrap().starts_with("R1 → Textured scene"));
     }
 
     #[test]

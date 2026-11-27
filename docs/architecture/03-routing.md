@@ -19,7 +19,8 @@ with all four edges blocked there is no background to stretch from,
 and left+right caps the square below what the subject needs.
 A too-small mask goes to R2 before any of this.
 
-R3 has no spec row. It is the answer to "we don't know": nothing cropped, nothing scaled, so a wrong
-guess costs framing rather than pixels.
+R3 has no row in that table. It takes the images whose square does not fit, and today also no
+verdict (a model error, #31): nothing cropped, nothing scaled, so a wrong guess costs framing rather
+than pixels.
 
 **Status:** all three routes are implemented. Spec behaviours are carried in their own module docstring.

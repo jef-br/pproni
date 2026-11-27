@@ -8,8 +8,8 @@ Detail moved out of the `src/app/` comments. The module table is
 ## progress.rs
 
 ### The footer under the bar
-The footer is the block the shell wants held under the bar — the rule / callout / rule that tells
-the user how to interrupt. It is drawn once, with the first frame, and then left alone: only the
+The footer is the block the shell wants held under the bar — a blank line, then the rule / callout /
+rule that tells the user how to interrupt. It is drawn once, with the first frame, and then left alone: only the
 bar line ever changes, so every later frame steps the cursor up to that one line, rewrites it, and
 steps back down. Nothing else writes to stdout while the batch runs (failures are collected, not
 printed), so the block stays where it was first drawn.

@@ -27,7 +27,7 @@ use crate::core::shot_classifier::Mask;
 use image::RgbImage;
 
 /// The product silhouette, grown outward, as the span it covers on every row and every column of
-/// the *original* image: the product band, copied untouched and never a stretch source (plan A.2).
+/// the *original* image: the product band, copied untouched and never a stretch source.
 /// Built from the working-resolution mask, grown by a disc of `grow` pixels.
 /// See docs/architecture/modules/core-processor-routes-center-and-stretch.md.
 pub struct Silhouette {
@@ -162,7 +162,7 @@ fn grow_spans(spans: &[Option<(i64, i64)>], r: i64, slope: i64) -> Vec<(i64, i64
 }
 
 /// How many full-resolution pixels the silhouette is grown by: `R1_FILL_SOURCE_CLEARANCE_WORKING_PX`
-/// scaled up to original pixels (plan A.2).
+/// scaled up to original pixels.
 fn clearance_px(prep: &Prepared) -> u32 {
     (config::R1_FILL_SOURCE_CLEARANCE_WORKING_PX as f32 * working_scale(prep)).round() as u32
 }
@@ -470,8 +470,8 @@ mod tests {
         let shot = Shot { class: &class, mask: &mask, bgc: None };
         let out = send(&prep, Some(shot), &decide(&prep, Some(shot)).route);
 
-        // The route output is exactly the reframe of the trimmed interior — proof it took the Part C
-        // path, not R1's stretch, whichever reframe priority won.
+        // The route output is exactly the reframe of the trimmed interior — proof it took the
+        // textured-scene reframe, not R1's stretch, whichever reframe priority won.
         let trimmed = image::imageops::crop_imm(&img, keep.x, keep.y, keep.w, keep.h).to_image();
         let bbox = shot.subject_bbox_in(&prep).unwrap();
         let expected = extend::reframe_to_square(&trimmed, subject_into(bbox, keep));

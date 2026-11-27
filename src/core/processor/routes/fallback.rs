@@ -1,5 +1,5 @@
-//! R3 — no verdict (EIX not set). Fits the *whole* image, uncropped and unscaled, centred on a
-//! square canvas sized to the original's longest side, the remainder filled white.
+//! R3 — no square fits the subject, or no verdict (`EIX=____`, a model error, #31). Fits the
+//! *whole* image, uncropped and unscaled, centred on a square canvas sized to the original's longest side, the remainder filled white.
 //! See docs/architecture/modules/core-processor-routes.md.
 
 use super::super::super::preprocessor::Prepared;

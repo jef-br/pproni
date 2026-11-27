@@ -118,7 +118,7 @@ pub fn preprocess(decoded: Decoded, options: &Options) -> Result<Prepared, Strin
         trace::note(|| "No ICC profile in the file: colours left as-is".into());
     }
 
-    // Plan Part C: bars are found on full resolution, before the mask exists; `original` stays
+    // Bars round a textured scene are found on full resolution, before the mask exists; `original` stays
     // whole. See docs/architecture/modules/core-preprocessor-optimizer.md.
     let report = optimizer::detect_letterbox(&original);
     let letterbox = report.keep;

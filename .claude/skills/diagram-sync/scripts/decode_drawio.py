@@ -24,6 +24,10 @@ import sys
 import urllib.parse
 import zlib
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 
 def extract_xml(svg_path: str, diagram_index: int = 0) -> str:
     svg = open(svg_path, encoding="utf-8").read()

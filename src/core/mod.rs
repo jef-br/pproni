@@ -165,8 +165,9 @@ fn peel(prep: &Prepared, frame: Rect) -> Prepared {
 /// Run the shot classifier, once: the model sees the optimiser's crop (trim 1's), the edge checks the
 /// true-colour image. The mask comes out with the verdict for the exporter's debug tags.
 ///
-/// `None` means no verdict (model unavailable, or inference failed on this image), not a batch error:
-/// `shot_classifier::route` sends it down R3, which frames it without knowing where the subject is.
+/// `None` means no verdict: the model run on this image returned an error (a bug, #31), not a batch
+/// error: `shot_classifier::route` sends it down R3, which frames it without knowing where the
+/// subject is.
 /// See docs/architecture/01-why-classification-is-optional.md.
 fn classify(prep: &Prepared) -> Option<(ShotClassification, Mask)> {
     use crate::core::shot_classifier::{CroppedModel, SegmentationModel};

@@ -29,32 +29,29 @@ takes the largest square the image already contains, centred.
 
 Why each of its three verdicts (decided in `shot_classifier::route::decide`) lands here:
 
-* **The mask covers too little of the frame to be a subject.** A close-up where the segmenter
+* 1. **The mask covers too little of the frame to be a subject.** A close-up where the segmenter
   latched onto one high-contrast detail. Cropping to that detail magnifies a speck; padding around
   the whole image adds white to a picture that is already all product. Taking a square out of it is
   the only move that neither invents nor magnifies.
-* **Left and right both bled, and nothing else.** The subject spans the full width, so the square
+* 2. **Left and right both bled, and nothing else.** The subject spans the full width, so the square
   can be at most that wide, and the subject is taller than that. R1 would have to stretch a blocked
   axis to fit, which would paint background over a subject running off-frame. Cropping into the
   height is the answer instead.
-* **All four edges bled.** The subject's box *is* the frame. Nowhere to put a margin, no background
+* 3. **All four edges bled.** The subject's box *is* the frame. Nowhere to put a margin, no background
   band anywhere to stretch from.
 
-**Centred on the frame, not on the mask.** Two of the three cases arrive here precisely because the
-mask is not to be trusted, and the third has a subject spanning the whole width, so the frame is the
-more reliable anchor in all three.
+**Centred on the frame, not on the mask.** In the first case the mask is not to be trusted. In the other two the subject runs off the frame, so its box is the frame on at least one side. Either way the frame is the safer anchor.
 
 **Room left for CoG/MSR.** A CoG/MSR square is the planned refinement this leaves room for (see
 [build status](../../specs/08-build-status.md)): anchor the crop on the saliency-weighted centre rather than the
-frame's middle. Nothing in the 37-image set needs it yet.
+frame's middle.
 
 ## fallback.rs (R3)
 
-Reached when the classifier could not produce an answer at all: a failed inference, an unusable
-model output. There is no subject box to anchor on, so the route makes no claim about where the
-subject is: it fits the *whole* image, uncropped, into a square canvas sized to the original's
+Reached when no square can be planned around the subject, or with no verdict (a model error, #31).
+The route makes no claim about where the subject is: it fits the *whole* image, uncropped, into a square canvas sized to the original's
 largest dimension, centred, with the remainder filled white.
 
 Because a wrong guess here costs framing, never pixels ([routing](../03-routing.md)), it is the safe
-answer for "we don't know", which is why it is a route of its own rather than a degenerate case of
+answer when no square fits the subject, and when there is no verdict, which is why it is a route of its own rather than a degenerate case of
 R1.

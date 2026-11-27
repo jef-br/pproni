@@ -32,19 +32,21 @@ at. The model is shown trim 1's box backed off, and runs once: its mask is the o
 the picture, which is why both boxes are handed to `core::framing` to be read against it.
 
 **Outlier drop.** The rule (`drop_outliers`) is on the pipeline page linked above. The L1 distance is
-`|ΔR|+|ΔG|+|ΔB|`, and MAD is the median of those distances (16 on the frame border). The floor
+`|ΔR|+|ΔG|+|ΔB|` from the per-channel median colour, and MAD (Median Absolute Deviation) is the
+median of those distances over the 16 border samples (`TRIM_SAMPLES_PER_EDGE`, 4 per edge). The floor
 guards near-uniform edges from being shredded; the MAD term lets noisier edges keep a wider spread.
 The `TRIM_MIN_KEEP` closest are always kept so a mostly-product edge can't collapse the backdrop range
 to one colour.
 
 **Product test.** In `product_box` (the backdrop closed with a square window), anything thinner than
 a `TRIM_CLOSE_K` x `TRIM_CLOSE_K` block of product pixels, and everything outside the frame, is
-backdrop; the box spans every such block.
+backdrop; the box spans every such block. `TRIM_CLOSE_K` must be 2: `product_box` probes a 2 x 2
+block, and a check in the code stops the build for any other value.
 
-## The letterbox detector (plan Part C)
+## The letterbox detector (textured scenes with flat bars)
 
-The per-edge trim + texture detector is a measurement primitive, upstream of the mask; its per-edge
-part is shared with the deferred Part D. It reports, per edge, whether that border is a flat band
+The per-edge trim + texture detector is a measurement primitive, upstream of the mask; its flatness
+limit `T_EDGE_FLAT` is shared with `core::framing`, which handles frames. It reports, per edge, whether that border is a flat band
 and how it relates to the frame's backdrop (`EdgeKind`: `Backdrop`, `FlatOther`, `Varied`), plus
 whether the background outside the product proxy is textured. The proxy is `product_box`, since
 there is no segmask this far upstream. `detect_letterbox` reads it to find flat padding bars on a
@@ -55,9 +57,15 @@ a textured scene).
 
 ## When bars are trimmed
 
-The plan's table: an opposite pair of edges that are both `FlatOther` (flat, in a colour that is not
-the frame's backdrop) while the other pair is `Varied` is padding on that axis, and it is trimmed.
-Every other mix leaves the image whole. That is the hard bound (the EIX no-flip bound in
+The rule:
+* an opposite pair of edges that are both `FlatOther` (flat, in a colour that is not
+the frame's backdrop) while the other pair is `Varied` is padding on that axis, and it is
+trimmed: the detector returns the rectangle inside the bars (`keep`). The image itself is
+not cut here; R1 reframes that rectangle later. A trim that would keep a quarter or less of either
+axis is refused, and the image stays whole. A bar's depth is counted inward from its edge, one
+line at a time, while at least 99% of the line's pixels lie within `T_EDGE_FLAT` of that edge's
+median colour on every channel.
+* Every other mix leaves the image whole. That is the hard bound (the EIX no-flip bound in
 [hard bounds](../../agent-knowledge/hard-bounds.md)): a freestanding product on a plain backdrop has
 `Backdrop` edges, so it can never be trimmed and `EIX0000` cannot flip.
 
@@ -66,5 +74,7 @@ backdrop themselves (10 of the 16 samples sit in them), so only bars that differ
 median — in practice two differently coloured bars — are trimmed. Same-coloured bars are handled
 later by `core::framing` ([work state 2026-10-21: R1 stretch rework](../../work-state/2026-10-21-r1-stretch-rework.md)).
 
-Texture is then measured on the trimmed interior, outside its product proxy; a flat interior is a
-frame (the deferred Part D case) and is left alone.
+`keep` is set only when the interior inside the bars is textured: its texture, measured outside its
+product proxy, must be above `T_TEXTURE_HIGHPASS`. A flat interior is not a textured scene and
+is left alone here; `core::framing` handles it after the model run (bars: `Centre`, a frame all
+round: `Peel`).
